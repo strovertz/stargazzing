@@ -7,8 +7,10 @@ import { CW, CH, Renderer } from './render/renderer';
 import { spritesFor } from './render/sprites';
 import { Ambience } from './audio/ambience';
 import { lightningAt } from './sim/weather';
+import { PROFS } from './sim/constants';
+import { NEEDS, STARS_PER_COLUMN } from './sim/village';
 
-const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora' };
+const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
@@ -83,7 +85,10 @@ function renderCard(): void {
   const s1 = document.createElement('div'), s2 = document.createElement('div');
   s1.className = s2.className = 'sub';
   cardSub = [s1, s2];
-  box.append(spriteCanvas(a), h4, s1, s2);
+  const bioEl = document.createElement('p'), link = document.createElement('a');
+  bioEl.className = 'bio'; bioEl.textContent = bio(a);
+  link.className = 'gh'; link.href = `https://github.com/${encodeURIComponent(a.name)}`; link.target = '_blank'; link.rel = 'noopener'; link.textContent = `github.com/${a.name}`;
+  box.append(spriteCanvas(a), h4, s1, s2, bioEl, link);
   for (const [k, v] of [['Energia', a.traits.energy], ['Sociável', a.traits.social], ['Jardineiro', a.traits.gardener], ['Explorador', a.traits.wander]] as const) {
     const row = document.createElement('div'), l = document.createElement('span'), m = document.createElement('span'), i = document.createElement('i');
     row.className = 'trait'; m.className = 'm'; l.textContent = k; i.style.width = `${(v * 100).toFixed(0)}%`;
@@ -104,6 +109,10 @@ function renderStatus(): void {
   const h = hourAt(sim.tick), w = sim.weather();
   const sky = w.kind === 'limpo' ? 'céu limpo' : w.kind;
   $('weather').textContent = sky + (w.wind > 0.7 && !w.storm ? ' e vento' : '') + (isNight(h) || h >= 20 ? ', noite' : h < 7 ? ', amanhecer' : h >= 17.5 ? ', entardecer' : ', dia');
+  const ph = moonPhase(sim.genesis + sim.tick * TICK_MS);
+  drawMoon(ph);
+  $('moonTxt').textContent = MOON[Math.round(ph * 8) % 8]!;
+  $('season').textContent = SEASON[sim.season]!;
   $('nPeople').textContent = `${sim.agents.filter(a => a.present).length}/${sim.agents.length}`;
   $('nTrees').textContent = String(sim.trees.length);
   let f = 0;
@@ -149,13 +158,74 @@ function start(): void {
 let lastScene = 0, lastUi = 0, lastMini = 0, lastFrame = 0, lastSound = 0;
 const amb = new Ambience();
 
+/** Dados públicos do GitHub de cada morador, buscados no deploy (opcional). */
+interface Profile { name?: string; repos?: number; followers?: number; since?: number; lang?: string }
+let profiles: Record<string, Profile> = {};
+function bio(a: Agent): string {
+  const p = profiles[a.name.toLowerCase()];
+  const prof = PROFS[a.prof]!, owl = a.owl ? ', coruja da vila' : '';
+  if (!p) return `${prof[0]!.toUpperCase()}${prof.slice(1)}${owl}.`;
+  const bits = [
+    p.lang ? `Escreve mais em ${p.lang}` : '',
+    p.repos !== undefined ? `${p.repos} repositório${p.repos === 1 ? '' : 's'} públicos` : '',
+    p.since ? `no GitHub desde ${p.since}` : '',
+  ].filter(Boolean);
+  return `${prof[0]!.toUpperCase()}${prof.slice(1)}${owl}. ${bits.join(', ')}.`;
+}
+
+const MOON = ['lua nova', 'lua crescente', 'quarto crescente', 'gibosa crescente', 'lua cheia', 'gibosa minguante', 'quarto minguante', 'lua minguante'];
+const SEASON = ['verão', 'outono', 'inverno', 'primavera'];
+/** Fase da lua de verdade: ciclo sinódico a partir de uma lua nova conhecida. */
+function moonPhase(ms: number): number { return ((((ms - Date.UTC(2000, 0, 6, 18, 14)) / 86_400_000) / 29.530588) % 1 + 1) % 1; }
+function drawMoon(ph: number): void {
+  const c = $<HTMLCanvasElement>('moon'), g = c.getContext('2d')!, r = 13;
+  g.clearRect(0, 0, 32, 32);
+  g.fillStyle = '#2a2f3a'; g.beginPath(); g.arc(16, 16, r, 0, 7); g.fill();
+  // parte iluminada: meia lua de um lado + elipse que cresce ou encolhe
+  const waxing = ph < 0.5, k = Math.cos(ph * Math.PI * 2);
+  g.fillStyle = '#f2ecd8'; g.beginPath();
+  g.arc(16, 16, r, -Math.PI / 2, Math.PI / 2, !waxing);
+  g.ellipse(16, 16, Math.abs(k) * r, r, 0, Math.PI / 2, -Math.PI / 2, waxing ? k > 0 : k < 0);
+  g.fill();
+}
+
+let diaryKey = '';
+function renderDiary(): void {
+  if (!$('diaryDrawer').classList.contains('open')) return;
+  const n = sim.stars, key = `${sim.log.length}|${n}|${sim.restored}`;
+  if (key === diaryKey) return;
+  diaryKey = key;
+  const works = $('works'); works.textContent = '';
+  for (const [kind, need] of NEEDS) {
+    const li = document.createElement('li'), b = document.createElement('b'), st = document.createElement('span');
+    b.textContent = kind[0]!.toUpperCase() + kind.slice(1);
+    const done = n >= need;
+    st.textContent = done ? 'pronto' : `faltam ${need - n} star${need - n > 1 ? 's' : ''}`;
+    li.className = done ? 'done' : '';
+    li.append(b, st); works.append(li);
+  }
+  const total = sim.terrain.columns.length, intact = sim.terrain.columns.filter(c => c.kind === 0).length;
+  const li = document.createElement('li'), b = document.createElement('b'), st = document.createElement('span');
+  b.textContent = 'Colunas da ágora'; st.textContent = `${intact} de ${total} em pé · 1 a cada ${STARS_PER_COLUMN} stars`;
+  li.append(b, st); works.append(li);
+  const ol = $('diary'); ol.textContent = '';
+  const items = sim.log.slice(-120).reverse();
+  if (!items.length) { const e = document.createElement('li'); e.textContent = 'Nada aconteceu ainda hoje.'; ol.append(e); }
+  for (const e of items) {
+    const li2 = document.createElement('li'), t = document.createElement('time'), sp = document.createElement('span');
+    t.textContent = fmt(sim.genesis + e.tick * TICK_MS); sp.textContent = e.text;
+    li2.append(t, sp); ol.append(li2);
+  }
+}
+
 /** O que o som precisa saber: clima, hora e quão perto a câmera está de uma roda de fogueira. */
 function updateSound(ts: number): void {
   const w = sim.weather(), h = hourAt(sim.tick), c = renderer.cam;
   let best = Infinity, fire = sim.terrain.plazas[0]!;
   for (const p of sim.terrain.plazas) { const d = Math.hypot(p.x - c.x, (p.y - c.y) * 2); if (d < best) { best = d; fire = p; } }
   const near = Math.max(0, 1 - best / 40) * Math.min(1, renderer.zoom / 1.25);
-  const crowd = sim.agents.filter(a => a.present && a.state === 'GATHER' && Math.abs(a.x - fire.x) < 12 && Math.abs(a.y - fire.y) < 7).length;
+  const crowd = sim.agents.filter(a => a.present && (a.state === 'GATHER' || (a.state === 'PLAY' && a.phase === 'stay')) && Math.abs(a.x - fire.x) < 14 && Math.abs(a.y - fire.y) < 8).length
+    + (sim.agents.some(a => a.state === 'PLAY' && a.phase === 'stay' && Math.abs(a.x - fire.x) < 14) ? 2 : 0);
   const day = h >= 6.5 && h < 18.5 ? 1 : h >= 5.5 && h < 19.5 ? 0.5 : 0;
   amb.update({ rain: w.rain, wind: w.wind, storm: w.storm, day, fire: near, crowd, flash: w.storm ? lightningAt(ts, sim.terrain.seed) : 0 });
 }
@@ -175,7 +245,7 @@ function loop(now: number): void {
     if (renderer.dirty || now - lastScene > 100) { renderer.drawScene(ts); lastScene = now; }
     renderer.drawActors(tf, selected, hovered);
     if (now - lastMini > 500) { renderer.drawMini(selected); lastMini = now; }
-    if (now - lastUi > 1000) { renderStatus(); renderPlayers(); lastUi = now; }
+    if (now - lastUi > 1000) { renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
     if (amb.on && now - lastSound > 200) { updateSound(ts); lastSound = now; }
   }
   requestAnimationFrame(loop);
@@ -185,6 +255,7 @@ function loop(now: number): void {
 function bind(): void {
   $('openHow').addEventListener('click', () => openDrawer('howDrawer'));
   $('openPlayers').addEventListener('click', () => openDrawer('playersDrawer'));
+  $('openDiary').addEventListener('click', () => { diaryKey = ''; openDrawer('diaryDrawer'); renderDiary(); });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => openDrawer('')));
   addEventListener('resize', () => renderer.resize());
   addEventListener('keydown', e => {
@@ -245,6 +316,10 @@ function bind(): void {
 async function boot(): Promise<void> {
   const res = await fetch(`${import.meta.env.BASE_URL}world.json`, { cache: 'no-cache' });
   world = (await res.json()) as WorldFile;
+  try {
+    const pr = await fetch(`${import.meta.env.BASE_URL}profiles.json`, { cache: 'no-cache' });
+    if (pr.ok) profiles = (await pr.json()) as Record<string, Profile>;
+  } catch { /* perfis são opcionais */ }
   const n = world.stargazers.length;
   $('dataNote').textContent = `${n} stargazer${n === 1 ? '' : 's'} reais de ${world.repo}` +
     (world.generatedAt ? `, lidos em ${new Date(world.generatedAt).toLocaleString('pt-BR')}.` : '.') +

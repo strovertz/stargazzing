@@ -48,8 +48,9 @@ function halfWidth(shape: Shape, u: number, v: number, blobs: number[][]): boole
   return false;
 }
 
-export function treeSprite(kindName: string, variant: number, scale: number, thirsty: boolean, zoom: number, dpr: number, CW: number, CH: number): TreeSprite {
-  const key = `${kindName}|${variant}|${scale}|${thirsty ? 1 : 0}|${zoom}|${dpr}`;
+/** season: 0 verão, 1 outono (copas alaranjadas), 2 inverno (neve no topo), 3 primavera (florzinhas). */
+export function treeSprite(kindName: string, variant: number, scale: number, thirsty: boolean, zoom: number, dpr: number, CW: number, CH: number, season = 0): TreeSprite {
+  const key = `${kindName}|${variant}|${scale}|${thirsty ? 1 : 0}|${zoom}|${dpr}|${season}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const kind = KINDS[kindName] ?? KINDS.carvalho!;
@@ -68,6 +69,8 @@ export function treeSprite(kindName: string, variant: number, scale: number, thi
   g.textBaseline = 'middle';
   let tones = kind.tones.map(hex);
   if (thirsty) tones = tones.map(t => mix(t, DRY, 0.45));
+  if (season === 1 && kind.shape !== 'pine') tones = tones.map((t, k) => mix(t, hex(['#4a2410', '#7a3a14', '#a8521c', '#c8702a', '#e8a048'][k]!), 0.5 + (variant % 3) * 0.1));
+  if (season === 2) tones = tones.map(t => mix(t, hex('#8a9aa4'), 0.22));
   const toneCss = tones.map((t: RGB) => `rgb(${t[0] | 0},${t[1] | 0},${t[2] | 0})`);
   const blobs: number[][] = [[0, 0.55, 0.62]];
   for (let k = 0; k < 5; k++) blobs.push([(r() - 0.5) * 1.1, 0.25 + r() * 0.55, 0.32 + r() * 0.22]);
@@ -89,7 +92,9 @@ export function treeSprite(kindName: string, variant: number, scale: number, thi
     if (!halfWidth(kind.shape, u * 1.18 + jag, v, blobs)) l -= 0.18; // borda mais escura
     const ti = Math.max(0, Math.min(4, Math.floor(l * 5)));
     let col = toneCss[ti]!, set = ti <= 1 ? CH_DARK : ti >= 3 ? CH_LIGHT : CH_MID;
-    if (kind.bloom && !thirsty && r() < 0.18 + 0.3 * Math.max(0, l - 0.4)) { col = kind.bloom[Math.min(2, Math.floor(l * 3))]!; set = ['*', 'o', '.', '°']; }
+    if (kind.bloom && !thirsty && season !== 2 && r() < (season === 3 ? 0.3 : 0.18) + 0.3 * Math.max(0, l - 0.4)) { col = kind.bloom[Math.min(2, Math.floor(l * 3))]!; set = ['*', 'o', '.', '°']; }
+    else if (season === 3 && kind.shape === 'round' && r() < 0.05) { col = '#f4c2d8'; set = ['*', '.']; }
+    if (season === 2 && v < 0.35 && l > 0.35 && r() < 0.5) { col = '#e8f0f4'; set = ['*', '°', '.']; }
     // corpo sólido da copa (tom mais escuro) e o caractere por cima (tom mais claro): textura densa
     g.fillStyle = toneCss[Math.max(0, ti - 2)]!;
     g.fillRect(i * sw - 0.3, j * sh - 0.3, sw + 0.6, sh + 0.6);

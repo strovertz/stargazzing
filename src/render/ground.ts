@@ -35,7 +35,7 @@ export class GroundCache {
 
   /** Assinatura do que é visível e muda: trilhas e flores. */
   private sig(cx: number, cy: number): number {
-    let h = 0x811c9dc5;
+    let h = (0x811c9dc5 ^ this.sim.terrain.version) >>> 0;
     const { wear, flower } = this.sim;
     for (let y = cy * CHUNK; y < Math.min(ROWS, (cy + 1) * CHUNK); y++) for (let x = cx * CHUNK; x < Math.min(COLS, (cx + 1) * CHUNK); x++) {
       const i = y * COLS + x, w = wear[i]!;
@@ -81,7 +81,7 @@ export class GroundCache {
       if (x >= COLS || y >= ROWS) continue;
       const i = y * COLS + x, t = T[i]!, w = wear[i]!;
       const trail = (t === Tile.Grass || t === Tile.Forest || t === Tile.Sand) && w >= 6;
-      g.fillStyle = trail ? '#17120c' : t === Tile.Floor && ruinCh[i] ? (ruinCh[i] === 'a' ? '#23251f' : '#2a2923') : BG[t]!;
+      g.fillStyle = trail ? '#17120c' : t === Tile.Floor && ruinCh[i] ? (ruinCh[i] === 'a' ? '#23251f' : ruinCh[i] === 'p' ? '#2a1a0e' : '#2a2923') : BG[t]!;
       g.fillRect(lx * cw, ly * ch, cw + 0.5, ch + 0.5);
       const shore = t <= Tile.Shallow && (!isWater(x - 1, y) || !isWater(x + 1, y) || !isWater(x, y - 1) || !isWater(x, y + 1));
       for (let j = 0; j < SY; j++) for (let k = 0; k < SX; k++) {
@@ -113,6 +113,8 @@ export class GroundCache {
           else if (k === 0 || j === 0) { chr = k === 0 && j === 0 ? '+' : k === 0 ? '|' : '-'; col = moss && roll < 70 ? pick(MOSS_T, hh >>> 9) : '#3c3a34'; }
           else if (moss && roll < 55) { chr = pick([',', '"', "'", ';', '*'], hh >>> 6); col = pick(MOSS_T, hh >>> 11); }
           else if (roll < 35) { chr = pick(['.', ':', '·'], hh >>> 6); col = pick(SLAB_T, hh >>> 11); }
+        } else if (t === Tile.Floor && ruinCh[i] === 'p') {
+          chr = j % 2 ? '=' : k === 1 ? '|' : '='; col = pick(['#6a4426', '#8a5a32', '#7a4e2c'], hh >>> 9);
         } else if (t === Tile.Floor && ruinCh[i] === 's') {
           chr = j % 2 ? '_' : '='; col = SLAB_T[Math.min(2, (j >> 1) + ((hh >>> 9) % 2))]!;
         } else if (t === Tile.Floor && ruinCh[i] === 'o') {

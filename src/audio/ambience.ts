@@ -92,13 +92,13 @@ export class Ambience {
       if (this.nextBird < ahead) { this.bird(this.nextBird); this.nextBird += 2.5 + Math.random() * (7 - s.wind * 3); }
     } else if (s.day < 0.3 && s.rain < 0.3) {
       if (this.nextCricket < t) this.nextCricket = t + Math.random();
-      if (this.nextCricket < ahead) { this.cricket(this.nextCricket); this.nextCricket += 0.9 + Math.random() * 2.2; }
+      if (this.nextCricket < ahead) { this.cricket(this.nextCricket); this.nextCricket += 2.5 + Math.random() * 5; }
     }
     if (s.fire > 0.05 && s.rain < 0.6) {
       if (this.nextCrackle < t) this.nextCrackle = t;
       while (this.nextCrackle < ahead) { this.crackle(this.nextCrackle, s.fire); this.nextCrackle += 0.04 + Math.random() * (0.5 / (0.3 + s.fire)); }
     }
-    if (s.fire > 0.15 && s.crowd >= 2 && s.day < 0.8 && !s.storm) {
+    if (s.fire > 0.15 && s.crowd >= 2 && !s.storm) {
       if (this.nextNote < t) this.nextNote = t + 0.05;
       while (this.nextNote < ahead) { this.pluck(this.nextNote, s.fire); this.nextNote += [0.32, 0.32, 0.64, 0.16][Math.floor(Math.random() * 4)]!; }
     }
@@ -126,13 +126,18 @@ export class Ambience {
     }
   }
 
+  /** Grilo ao longe: trinado curto e grave, filtrado e baixinho, em grupos irregulares. */
   private cricket(at: number): void {
-    const ctx = this.ctx!;
-    for (let k = 0; k < 3; k++) {
-      const t0 = at + k * 0.07, o = ctx.createOscillator();
-      o.type = 'triangle'; o.frequency.value = 4300 + Math.random() * 300;
-      o.connect(this.env(t0, 0.012, 0.005, 0.04));
-      o.start(t0); o.stop(t0 + 0.06);
+    const ctx = this.ctx!, f = ctx.createBiquadFilter(), base = 2600 + Math.random() * 500, pulses = 3 + Math.floor(Math.random() * 4);
+    f.type = 'bandpass'; f.frequency.value = base; f.Q.value = 6;
+    const out = this.env(at, 0.006, 0.02, 0.05 * pulses + 0.15);
+    f.connect(out);
+    for (let k = 0; k < pulses; k++) {
+      const t0 = at + k * (0.045 + Math.random() * 0.01), o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = base;
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(1, t0 + 0.008); g.gain.linearRampToValueAtTime(0, t0 + 0.03);
+      o.connect(g).connect(f);
+      o.start(t0); o.stop(t0 + 0.035);
     }
   }
 

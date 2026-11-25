@@ -35,3 +35,6 @@ export const HATS = ['cap', 'beanie', 'wizard', 'crown', 'flower', 'none', 'band
 export type Hat = (typeof HATS)[number];
 /** A cabana fica centrada em home.x - HOUSE_DX e ocupa 3 células (home.x-3..home.x-1), duas linhas de fundo. */
 export const HOUSE_DX = 2;
+/** Profissão sai do hash do login: muda a rotina e o item que o morador carrega. */
+export const PROFS = ['lenhador', 'pescador', 'músico', 'jardineiro', 'explorador'] as const;
+export type Prof = (typeof PROFS)[number];

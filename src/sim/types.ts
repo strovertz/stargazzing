@@ -2,7 +2,9 @@ import type { RGB } from '../core/color';
 import type { Rng } from '../core/rng';
 import type { Hat } from './constants';
 
-export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA';
+export interface LogEntry { tick: number; text: string; kind: 'chegada' | 'clima' | 'obra' | 'pesca' | 'evento' | 'céu' | 'encontro' | 'trabalho' }
+
+export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT';
 export type Phase = 'go' | 'stay' | 'walk' | 'boid';
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string }
@@ -50,6 +52,10 @@ export interface Agent {
   home: Point;
   /** último tick em que conversou ou acenou, para não ficar tagarelando sem parar */
   chatAt: number;
+  /** índice em PROFS */
+  prof: number;
+  /** coruja: fica acordado até tarde */
+  owl: boolean;
 }
 
 /** Uma entrada de public/world.json. Dados reais usam starredAt; a demo usa daysAgo ou todayHour. */

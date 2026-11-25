@@ -1,12 +1,14 @@
 import { hsl, css } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
-import { COLS, DAY_MS, DIR4, DIR8, FLOWERS, HAIR, HATS, HOUSE_DX, N, PANTS, ROWS, SKIN, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
+import { PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HAIR, HATS, HOUSE_DX, N, PANTS, ROWS, SKIN, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
 import { Terrain } from './world';
 import { weatherAt, type Weather } from './weather';
-import type { Agent, AgentMeta, Plaza, Point, State, Tree, WorldFile } from './types';
+import { lanternSpots, planVillage, STARS_PER_COLUMN, type Structure } from './village';
+import type { Agent, AgentMeta, LogEntry, Plaza, Point, State, Tree, WorldFile } from './types';
 
 export const hourAt = (t: number) => ((t * TICK_MS) / 3_600_000) % 24;
-export const isNight = (h: number) => h >= 22.5 || h < 5.5;
+/** Noite de sono: da meia-noite às 5h (corujas dormem ainda menos). */
+export const isNight = (h: number) => h >= 23.5 || h < 5;
 export const stageOf = (t: Tree) => (t.growth < 8 ? 0 : t.growth < 30 ? 1 : t.growth < 80 ? 2 : 3);
 
 /** Meia-noite local do mundo (fuso fixo) que contém o instante `ms`: é o ponto de checkpoint. */
@@ -39,6 +41,21 @@ export class Simulation {
   /** muda quando o chão (trilhas e flores) precisa ser redesenhado */
   groundVersion = 0;
   private reserved: Point[] = [];
+  /** diário do dia: chegadas, clima, obras, pescarias, eventos e céu */
+  readonly log: LogEntry[] = [];
+  readonly structures: Structure[];
+  readonly lanterns: [number, number][];
+  /** colunas da ágora já restauradas pela vila */
+  restored = 0;
+  /** tick da última estrela cadente */
+  shootingAt = -9999;
+  /** 0 verão, 1 outono, 2 inverno, 3 primavera (hemisfério sul, pela data real) */
+  readonly season: number;
+  /** dia da semana local (0 domingo) */
+  readonly weekday: number;
+  private lastKind = '';
+  private readonly gardenCells = new Set<number>();
+  private readonly brokenCols: number[];
   private readonly gScore = new Int32Array(N);
   private readonly closed = new Uint32Array(N);
   private readonly heapN = new Int32Array(N * 8);
@@ -49,6 +66,14 @@ export class Simulation {
 
   constructor(readonly world: WorldFile, readonly genesis: number) {
     this.terrain = new Terrain(fnv(world.seed));
+    const local = new Date(genesis + (world.timezoneOffsetHours ?? -3) * 3_600_000 + 12 * 3_600_000);
+    const m = local.getUTCMonth();
+    this.season = m === 11 || m <= 1 ? 0 : m <= 4 ? 1 : m <= 7 ? 2 : 3;
+    this.weekday = local.getUTCDay();
+    this.structures = planVillage(this.terrain);
+    this.lanterns = lanternSpots(this.terrain);
+    // ordem de restauro: quebradas primeiro, depois caídas, sempre a mesma
+    this.brokenCols = this.terrain.columns.map((c, i) => ({ c, i })).filter(o => o.c.kind > 0).sort((p, q) => p.c.kind - q.c.kind || p.i - q.i).map(o => o.i);
     const entries = world.stargazers.map(s => {
       if (s.starredAt) {
         const at = Date.parse(s.starredAt);
@@ -77,6 +102,47 @@ export class Simulation {
         this.agents.push(this.makeAgent(e.login, e.tick, { starredAt: genesis + e.tick * TICK_MS }));
       }
     }
+    this.updateVillage(false);
+  }
+
+  /** Quantos moradores já chegaram: é isso que move as obras. */
+  get stars(): number { let n = 0; for (const a of this.agents) if (a.present) n++; return n; }
+
+  /** Ergue as obras cujas metas foram batidas e restaura colunas. */
+  private updateVillage(announce: boolean): void {
+    const n = this.stars;
+    for (const s of this.structures) {
+      if (s.built || n < s.need) continue;
+      s.built = true; s.builtAt = this.tick;
+      for (const c of s.cells) {
+        if (s.kind === 'píer') { this.terrain.T[c] = Tile.Floor; this.terrain.ruinCh[c] = 'p'; this.terrain.comp[c] = 1; }
+        else this.terrain.block[c] = 1;
+      }
+      if (s.kind === 'jardim') {
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -4; dx <= 4; dx++) {
+          const i = (s.y + dy) * COLS + s.x + dx;
+          if ((this.terrain.T[i] === Tile.Grass || this.terrain.T[i] === Tile.Forest) && !this.terrain.block[i] && (dx + dy) % 2 === 0) { this.flower[i] = 1 + (h32(i, 3, 7) % FLOWERS.length); this.gardenCells.add(i); }
+        }
+      }
+      this.terrain.version++;
+      if (announce) this.note(`A vila construiu ${s.kind === 'lanternas' ? 'as lanternas da ágora' : s.kind === 'jardim' ? 'um jardim em volta do poço' : s.kind === 'píer' ? 'um píer no lago' : `um${s.kind === 'estátua' ? 'a' : ''} ${s.kind}`} (${s.need} stars)`, 'obra');
+    }
+    const want = Math.min(this.brokenCols.length, Math.max(0, Math.floor((n - 2) / STARS_PER_COLUMN) + 1));
+    while (this.restored < want) {
+      const col = this.terrain.columns[this.brokenCols[this.restored]!]!;
+      col.kind = 0; col.h = 0.9;
+      this.terrain.block[col.y * COLS + col.x] = 1;
+      this.terrain.ruinCh[col.y * COLS + col.x] = 'a';
+      if (this.terrain.ruinCh[col.y * COLS + col.x + 1] === 'o') this.terrain.ruinCh[col.y * COLS + col.x + 1] = 'a';
+      this.restored++;
+      this.terrain.version++;
+      if (announce) this.note('Uma coluna da ágora foi restaurada', 'obra');
+    }
+  }
+
+  private note(text: string, kind: LogEntry['kind']): void {
+    this.log.push({ tick: this.tick, text, kind });
+    if (this.log.length > 400) this.log.shift();
   }
 
   tickAt(ms: number): number { return Math.floor((ms - this.genesis) / TICK_MS); }
@@ -111,7 +177,27 @@ export class Simulation {
       this.act(a);
     }
     if (this.tick % 240 === 0) this.seasonPass();
+    this.skyAndEvents();
   }
+
+  /** Clima que muda, estrelas cadentes e eventos marcados, tudo anotado no diário. */
+  private skyAndEvents(): void {
+    const t = this.tick, h = hourAt(t), seed = this.terrain.seed;
+    if (t % 120 === 0) {
+      const w = this.weather();
+      if (w.kind !== this.lastKind) {
+        if (this.lastKind) this.note(w.kind === 'limpo' ? 'O céu abriu' : w.kind === 'tempestade' ? 'Tempestade! Todo mundo correu para casa' : `Começou: ${w.kind}`, 'clima');
+        this.lastKind = w.kind;
+      }
+    }
+    if ((h >= 20 || h < 5) && this.weather().cloud < 0.5 && h32(t, 99, seed) % 2400 === 0) { this.shootingAt = t; this.note('Uma estrela cadente cruzou o céu', 'céu'); }
+    if (t === Math.round(8 * TICKS_PER_HOUR) && (this.weekday === 0 || this.weekday === 6)) this.note('Dia de feira na ágora', 'evento');
+    if (t === Math.round(20 * TICKS_PER_HOUR) && this.weekday === 5) this.note('Corrida de vaga-lumes em volta da ágora', 'evento');
+  }
+
+  /** Feira: sábado e domingo das 9h às 17h. Corrida de vaga-lumes: sexta das 20h às 21h. */
+  isFair(t = this.tick): boolean { const h = hourAt(t); return (this.weekday === 0 || this.weekday === 6) && h >= 9 && h < 17; }
+  isFireflyRace(t = this.tick): boolean { const h = hourAt(t); return this.weekday === 5 && h >= 20 && h < 21; }
 
   /** Hash do estado inteiro, usado nos testes de determinismo. */
   stateHash(): number {
@@ -139,6 +225,7 @@ export class Simulation {
       arriveTick, meta, present: false, x: 0, y: 0, px: 0, py: 0, mt: 0, face: 1, state: 'ARRIVE', phase: 'go', wait: 0, path: [],
       dir: Math.floor(r() * 4), steps: 0, boidLeft: 0, mv: [0, 0], tree: null, friend: null, plaza: null, bubble: '', bubbleUntil: 0, hut: false,
       home: { x: 0, y: 0 }, chatAt: -9999,
+      prof: fnv(name.toLowerCase() + '#prof') % PROFS.length, owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
     };
     a.home = this.pickHome(a);
     return a;
@@ -175,6 +262,8 @@ export class Simulation {
 
   private spawn(a: Agent): void {
     a.present = true;
+    this.note(`${a.name} chegou para morar na floresta (${PROFS[a.prof]})`, 'chegada');
+    this.updateVillage(true);
     const right = a.r() < 0.5;
     let best: Point | null = null, bd = 1e9;
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
@@ -309,14 +398,19 @@ export class Simulation {
     const h = hourAt(this.tick), night = isNight(h), wx = this.weather(), rain = wx.rain > 0.3, evening = h >= 18 && h < 22.5;
     const storm = wx.storm ? 1 : 0, fog = wx.fog > 0.35 ? 1 : 0, day = h >= 7 && h < 18;
     const thirsty = !!a.tree && this.tick - a.tree.lastWater > 1600;
+    const prof = PROFS[a.prof], owl = a.owl ? 1 : 0, late = h >= 22 || h < 5, out = (1 - storm) * (rain ? 0.3 : 1), fair = this.isFair() ? 1 : 0;
     const w: [State, number][] = [
       ['WANDER', (0.4 + a.traits.wander * 1.2) * (night ? 0.25 : 1) * (fog ? 0.5 : 1) * (storm ? 0.05 : 1)],
       ['WATER', a.tree ? (thirsty && !rain ? 1.8 : 0.12) * (0.4 + a.traits.gardener) : 0],
-      ['REST', (1.1 - a.traits.energy) * (night ? 0.8 : 0.25) + (night ? 3.2 : 0) + (rain ? 1 : 0) + storm * 8],
+      ['REST', (1.1 - a.traits.energy) * (night ? 0.8 : 0.25) + (night ? (owl ? 0.5 : 3.2) : 0) + (rain ? 1 : 0) + storm * 8],
       ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1) * (storm ? 0.05 : 1)],
-      ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : 0.35) * (rain ? 0.2 : 1) * (1 - storm)],
-      ['FISH', (0.15 ) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1)],
-      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm)],
+      ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : late && owl ? 2 : 0.35) * (rain ? 0.2 : 1) * (1 - storm)],
+      ['FISH', (prof === 'pescador' ? 0.8 : 0.15) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1)],
+      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm) * (fair ? 2.5 : 1)],
+      ['CHOP', prof === 'lenhador' && day ? 0.9 * out : 0],
+      ['PLAY', prof === 'músico' && (day || evening) ? 0.8 * out : 0],
+      ['GARDEN', prof === 'jardineiro' && day ? 0.9 * (1 - storm) : 0],
+      ['BOAT', prof === 'pescador' && day && !rain && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
     let st: State = 'REST';
@@ -334,6 +428,34 @@ export class Simulation {
       a.friend = f;
       const fy = f.home.y + 1;
       return fy < ROWS && this.terrain.passable(fy * COLS + f.home.x) ? this.goTo(a, f.home.x, fy) : this.goTo(a, f.home.x, f.home.y);
+    }
+    if (st === 'CHOP') {
+      // lenhador: a árvore nativa mais perto de casa que ainda não é da ágora
+      let best: Point | null = null, bd = Infinity;
+      for (const w of this.terrain.wild) {
+        const d = Math.abs(w.x - a.home.x) + Math.abs(w.y - a.home.y) * 2;
+        if (d < bd && d > 2 && this.terrain.passable(w.y * COLS + w.x + 1)) { bd = d; best = { x: w.x + 1, y: w.y }; }
+      }
+      if (!best || bd > 120) return this.startWalk(a);
+      a.face = -1;
+      return this.goTo(a, best.x, best.y);
+    }
+    if (st === 'PLAY') {
+      const ag = this.terrain.agora, x = ag.x + (a.r() < 0.5 ? -3 : 3), y = ag.y + 2;
+      a.plaza = this.terrain.plazas[0]!;
+      return this.terrain.passable(y * COLS + x) ? this.goTo(a, x, y) : this.startWalk(a);
+    }
+    if (st === 'GARDEN') {
+      const others = this.trees.filter(t => t !== a.tree);
+      if (!others.length) return this.goTo(a, a.home.x, a.home.y);
+      const t = others[Math.floor(a.r() * others.length)]!;
+      a.friend = this.agents.find(b => b.tree === t) ?? null;
+      const y = t.y + 1;
+      return y < ROWS && this.terrain.passable(y * COLS + t.x) ? this.goTo(a, t.x, y) : this.startWalk(a);
+    }
+    if (st === 'BOAT') {
+      const pier = this.structures.find(s => s.kind === 'píer')!;
+      return this.goTo(a, pier.x, pier.y);
     }
     if (st === 'AGORA') {
       // passeio pela ágora: um ponto livre qualquer entre as colunas
@@ -356,7 +478,8 @@ export class Simulation {
     const i = a.y * COLS + a.x;
     if (a.r() < 0.75) { a.dir = this.flip[i] ? (a.dir + 3) % 4 : (a.dir + 1) % 4; this.flip[i]! ^= 1; }
     const dx = a.home.x - a.x, dy = a.home.y - a.y;
-    if (Math.abs(dx) > 26 || Math.abs(dy) > 12) a.dir = Math.abs(dx) / 2 > Math.abs(dy) ? (dx > 0 ? 1 : 3) : dy > 0 ? 2 : 0;
+    const rx = PROFS[a.prof] === 'explorador' ? 70 : 26, ry = PROFS[a.prof] === 'explorador' ? 32 : 12;
+    if (Math.abs(dx) > rx || Math.abs(dy) > ry) a.dir = Math.abs(dx) / 2 > Math.abs(dy) ? (dx > 0 ? 1 : 3) : dy > 0 ? 2 : 0;
     for (const k of [0, 1, 3, 2]) {
       const d = (a.dir + k) % 4, [ddx, ddy] = DIR4[d]!, nx = a.x + ddx, ny = a.y + ddy;
       if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS || !this.terrain.passable(ny * COLS + nx)) continue;
@@ -402,12 +525,27 @@ export class Simulation {
       if (a.state === 'AGORA') { a.phase = 'boid'; a.boidLeft = 50 + Math.floor(a.r() * 110); return; }
       a.phase = 'stay';
       const night = isNight(hourAt(tick));
+      if (a.state === 'CHOP') { a.wait = 60 + Math.floor(a.r() * 80); a.bubble = 'tok'; a.bubbleUntil = tick + a.wait; return; }
+      if (a.state === 'PLAY') { a.wait = 120 + Math.floor(a.r() * 160); a.bubble = '♪'; a.bubbleUntil = tick + a.wait; return; }
+      if (a.state === 'GARDEN') {
+        a.wait = 30 + Math.floor(a.r() * 30); a.bubble = '¨'; a.bubbleUntil = tick + a.wait;
+        const t = this.trees.find(tr => tr.x === a.x && tr.y === a.y - 1);
+        if (t) t.lastWater = tick;
+        // planta uma flor do lado
+        const fi = a.y * COLS + a.x + (a.r() < 0.5 ? -1 : 1);
+        if (this.terrain.T[fi] === Tile.Grass && !this.flower[fi]) this.flower[fi] = 1 + Math.floor(a.r() * FLOWERS.length);
+        if (a.friend && a.r() < 0.04) this.note(`${a.name} regou a árvore de ${a.friend.name}`, 'trabalho');
+        return;
+      }
+      if (a.state === 'BOAT') { a.wait = 200 + Math.floor(a.r() * 300); return; }
       a.wait = a.state === 'WATER' ? 14 : a.state === 'REST' ? (night ? Math.floor((120 + a.r() * 300) * 2.5) : 40 + Math.floor(a.r() * 100)) : 40 + Math.floor(a.r() * 60);
       if (a.state === 'WATER') { a.bubble = '¨'; a.bubbleUntil = tick + 14; }
       if (a.state === 'REST' && night) { a.bubble = 'z'; a.bubbleUntil = tick + a.wait; }
       const f = a.friend;
       if (a.state === 'VISIT' && f && Math.abs(f.x - a.x) < 4 && Math.abs(f.y - a.y) < 3) {
-        a.bubble = '♥'; a.bubbleUntil = tick + a.wait; f.bubble = '♥'; f.bubbleUntil = tick + a.wait;
+        const gift = a.r() < 0.4;
+        a.bubble = gift ? 'gift' : '♥'; a.bubbleUntil = tick + a.wait; f.bubble = '♥'; f.bubbleUntil = tick + a.wait;
+        if (gift) this.note(`${a.name} levou um presente para ${f.name}`, 'encontro');
       }
       return;
     }
@@ -429,6 +567,11 @@ export class Simulation {
     }
     if (a.state === 'PLANT') this.build(a);
     if (a.state === 'WATER' && a.tree) a.tree.lastWater = tick;
+    if ((a.state === 'FISH' || a.state === 'BOAT') && a.r() < (PROFS[a.prof] === 'pescador' ? 0.6 : 0.3)) {
+      const roll = a.r(), fish = roll < 0.04 ? 'um peixe dourado' : roll < 0.1 ? 'uma bota velha' : ['um lambari', 'uma traíra', 'um bagre'][Math.floor(a.r() * 3)]!;
+      a.bubble = fish === 'uma bota velha' ? '?' : '><>'; a.bubbleUntil = tick + 10;
+      if (fish === 'um peixe dourado' || fish === 'uma bota velha' || a.r() < 0.08) this.note(`${a.name} pescou ${fish}`, 'pesca');
+    }
     this.decide(a);
   }
 
@@ -462,7 +605,8 @@ export class Simulation {
     for (const t of this.trees) { const watered = this.tick - t.lastWater < 1800; t.growth += (rain ? 2 : 1) * (watered ? 1.5 : 1); }
     for (let i = 0; i < N; i++) {
       if (this.wear[i]! > 0) { this.wear[i]! *= 0.945; if (this.wear[i]! < 0.05) this.wear[i] = 0; }
-      if (!this.flower[i] && T[i] === Tile.Grass && this.wear[i]! >= 2.5 && this.wear[i]! < 6 && this.tick - this.lastV[i]! > 2400 && h32(i, this.tick, seed) % 1000 < 12) {
+      if (this.gardenCells.has(i)) continue;
+      if (!this.flower[i] && T[i] === Tile.Grass && this.wear[i]! >= (this.season === 3 ? 2 : 2.5) && this.wear[i]! < 6 && this.tick - this.lastV[i]! > 2400 && h32(i, this.tick, seed) % 1000 < (this.season === 3 ? 18 : 12)) {
         this.flower[i] = 1 + (h32(i, 7, seed) % FLOWERS.length);
         this.wear[i] = 0;
       } else if (this.flower[i] && h32(i, this.tick, 11) % 1000 < 4) this.flower[i] = 0;

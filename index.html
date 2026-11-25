@@ -15,7 +15,7 @@
   <canvas id="fg" aria-label="Mundo animado dos stargazers. Arraste para mover, role para dar zoom."></canvas>
   <div class="hud glass">
     <h1>Stargazzing</h1>
-    <div class="row" aria-live="polite"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
+    <div class="row" aria-live="polite"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt moon"><canvas id="moon" width="32" height="32" aria-hidden="true"></canvas><em id="moonTxt"></em> · <em id="season"></em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
   </div>
   <div class="tools">
     <div class="seg glass"><button id="sound" aria-pressed="false" aria-label="Ligar som ambiente" title="Som ambiente">♪ off</button></div>
@@ -25,6 +25,7 @@
   <div class="hint glass" id="hint">Arraste para andar pelo mapa · role para zoom · clique num morador</div>
   <div class="fabs">
     <button class="fab glass" id="openHow">Como funciona</button>
+    <button class="fab glass" id="openDiary">Diário</button>
     <button class="fab gold" id="openPlayers">Players <span class="n" id="nBadge">0</span></button>
   </div>
   <aside class="drawer glass" id="howDrawer" aria-label="Como funciona" aria-hidden="true">
@@ -41,12 +42,23 @@
       <li><b>Clima.</b> Céu limpo, nublado, neblina de manhã, garoa, chuva e tempestade com relâmpagos, mais a força do vento, saem de ruído Perlin sobre o horário real. Na tempestade todo mundo corre para casa; na neblina passeiam menos e pescam mais.</li>
       <li><b>Encontros.</b> Quem se cruza no passeio acena ou para para conversar; na roda da fogueira alguém sempre puxa uma música.</li>
       <li><b>Som.</b> Botão ♪ no topo: vento, chuva, trovão, pássaros, grilos, fogueira e um alaúde de taverna perto das rodas. Tudo sintetizado no navegador, sem arquivo de áudio.</li>
+      <li><b>Profissões.</b> O hash do login escolhe lenhador, pescador, músico, jardineiro ou explorador. Cada um tem rotina própria e carrega seu item. Um em cada quatro é coruja e fica na fogueira até tarde.</li>
+      <li><b>Vila que cresce com as stars.</b> Poço, lanternas, mercado, píer, jardim e estátua surgem conforme chegam moradores, e a cada 2 stars uma coluna da ágora é restaurada. Como tudo sai da contagem de stars, todo navegador vê a mesma vila.</li>
+      <li><b>Calendário.</b> Feira na ágora no sábado e no domingo, corrida de vaga-lumes na sexta às 20h, estações do ano pela data real (hemisfério sul) e a lua na fase de verdade.</li>
+      <li><b>Bichos.</b> Coelhos de dia, raposas ao entardecer, e um gato que escolhe um morador por dia para seguir.</li>
       <li><b>Relógio determinístico.</b> 1 tick = 0,5 s. Ao abrir, o site refaz o dia desde a meia-noite (o checkpoint) até agora. Todo mundo vê a mesma cena.</li>
     </ol>
     <h3>Por que roda leve</h3>
     <p>Tudo é desenhado em mini-grade, com 12 caracteres por célula. O chão é rasterizado em blocos de 16×16 células e só é refeito quando trilhas ou flores mudam; árvores e casas viram imagens cacheadas; a cada quadro só personagens, fogo, vento e luz são desenhados. A busca de caminho reaproveita buffers e para cedo.</p>
     <p id="dataNote"></p>
     <p><a href="https://github.com/strovertz/stargazzing" class="gh">Código no GitHub</a> · dê uma star e vire morador.</p>
+  </aside>
+  <aside class="drawer glass" id="diaryDrawer" aria-label="Diário da vila" aria-hidden="true">
+    <h2>Diário da vila <button data-close aria-label="Fechar">×</button></h2>
+    <h3>Obras</h3>
+    <ul class="works" id="works"></ul>
+    <h3>Hoje</h3>
+    <ol class="diary" id="diary"></ol>
   </aside>
   <aside class="drawer glass" id="playersDrawer" aria-label="Players" aria-hidden="true">
     <h2>Players <button data-close aria-label="Fechar">×</button></h2>

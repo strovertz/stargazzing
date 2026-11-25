@@ -20,6 +20,8 @@ export class Terrain {
   /** centro e raios da ágora */
   agora = { x: 0, y: 0, rx: 16, ry: 8 };
   readonly noise: Noise3;
+  /** muda quando a vila altera o chão (píer, colunas restauradas) */
+  version = 0;
 
   constructor(readonly seed: number) {
     this.noise = makeNoise(seed);

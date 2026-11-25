@@ -115,3 +115,61 @@ export function columnSprite(kind: number, hgt: number, variant: number, cw: num
   cache.set(key, s);
   return s;
 }
+
+/** Arte em mini-grade a partir de linhas de texto: cada caractere vira um subcaractere; cores por letra. */
+type Pal = Record<string, [string, string?]>;
+function artSprite(key: string, rows: string[], pal: Pal, map: (ch: string, i: number, j: number) => string, cw: number, ch: number, dpr: number) {
+  const k = `${key}|${cw}|${ch}|${dpr}`;
+  const hit = cache.get(k);
+  if (hit) return hit;
+  const sw = (cw / 3) * dpr, sh = (ch / 4) * dpr, cols = Math.max(...rows.map(r => r.length));
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(cols * sw); c.height = Math.ceil(rows.length * sh);
+  const g = c.getContext('2d')!;
+  g.font = `700 ${Math.max(3, Math.round(sh * 1.45))}px "JetBrains Mono",monospace`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  rows.forEach((row, j) => [...row].forEach((code, i) => {
+    if (code === ' ') return;
+    const [fg, bg] = pal[code] ?? ['#ff00ff'];
+    if (bg) { g.fillStyle = bg; g.fillRect(i * sw - 0.3, j * sh - 0.3, sw + 0.6, sh + 0.6); }
+    g.fillStyle = fg; g.fillText(map(code, i, j), (i + 0.5) * sw, (j + 0.5) * sh);
+  }));
+  const s = { canvas: c, w: c.width / dpr, h: c.height / dpr };
+  cache.set(k, s);
+  return s;
+}
+
+const STONE: Pal = { s: ['#8c8676', '#4a4840'], S: ['#aaa492', '#6b675b'], m: ['#5a9a48', '#2f5a2c'], w: ['#6a4a2a', '#3a2818'], r: ['#b0503a', '#5a2418'], R: ['#d06a48', '#7a3020'], a: ['#2f6f9a', '#143a55'], f: ['#f2c14e'], g: ['#86bf68'], p: ['#f07aa8'], y: ['#fadc5a'], o: ['#ff9a5a'], b: ['#b89cff'] };
+
+export function wellSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['  rrRRR  ', ' rrRRRRR ', 'rrrRRRRRR', '  w   w  ', '  w   w  ', '  w   w  ', ' SsSsSsS ', 'SsaaaaasS', 'SsaaaaasS', 'mSsSsSsSm'];
+  return artSprite('poço', rows, STONE, (c, i) => (c === 'r' || c === 'R' ? (i < 4 ? '/' : i > 4 ? '\\' : '^') : c === 'w' ? '|' : c === 'a' ? '~' : c === 'm' ? '"' : i % 2 ? '#' : '='), cw, ch, dpr);
+}
+
+export function marketSprite(fair: boolean, cw: number, ch: number, dpr: number) {
+  // três barracas com toldo listrado; em dia de feira, cheias de frutas e flores
+  const rows: string[] = [];
+  const stall = () => ['XYXYXYXYX', 'XYXYXYXYX', ' w     w ', ' w' + (fair ? 'fypob' : '     ') + 'w ', ' wsssssw ', ' w     w '];
+  const parts = [stall(), stall(), stall()];
+  for (let j = 0; j < 6; j++) rows.push(parts.map(p => p[j]).join(''));
+  const pal: Pal = { ...STONE, X: ['#f4e9d0', '#c43c3c'], Y: ['#f4e9d0', '#e8d9b0'] };
+  return artSprite(`mercado|${fair}`, rows, pal, (c, i) => (c === 'X' || c === 'Y' ? (i % 9 === 0 ? '/' : i % 9 === 8 ? '\\' : '=') : c === 'w' ? '|' : c === 's' ? '=' : 'o'), cw, ch, dpr);
+}
+
+export function statueSprite(cw: number, ch: number, dpr: number) {
+  // figura antiga de mármore com musgo no pedestal
+  const rows = ['   SSS   ', '  SssS   ', '   SS    ', ' sSSSSs  ', 's SSSS s ', '  SSSS   ', '  SSSS   ', '  S  S   ', '  S  S   ', ' mSSSSSm ', ' SsSsSsS ', 'mSsSsSsSm', 'SsSsSsSsS'];
+  return artSprite('estátua', rows, STONE, (c, i, j) => (c === 'm' ? '"' : j < 3 ? (c === 's' ? 'o' : '@') : j < 9 ? (c === 's' ? (i < 4 ? '/' : '\\') : '|') : i % 2 ? '#' : '='), cw, ch, dpr);
+}
+
+export function lanternSprite(lit: boolean, cw: number, ch: number, dpr: number) {
+  const rows = [' R ', 'RfR', ' w ', ' w ', ' w ', ' w ', 'sws'];
+  const pal: Pal = { ...STONE, f: [lit ? '#ffe08a' : '#6a6a5a', lit ? '#a8651f' : '#2a2a24'], R: ['#3a3a40', '#1a1a1e'] };
+  return artSprite(`lanterna|${lit}`, rows, pal, (c, i) => (c === 'R' ? (i === 1 ? '^' : '=') : c === 'f' ? '*' : c === 'w' ? '|' : '_'), cw, ch, dpr);
+}
+
+export function boatSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['wwwwwwwww', ' WWWWWWW '];
+  const pal: Pal = { w: ['#8a5a32', '#4a2e18'], W: ['#6a4426', '#2e1c0e'] };
+  return artSprite('barco', rows, pal, (c, i) => (c === 'w' ? (i === 0 ? '\\' : i === 8 ? '/' : '=') : '_'), cw, ch, dpr);
+}
