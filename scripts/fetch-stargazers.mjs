@@ -43,7 +43,7 @@ try {
   // Sem API (limite, rede): mantém o arquivo atual para o deploy não quebrar.
   try {
     await readFile(out);
-    const hint = process.env.STARS_TOKEN ? '' : ' Configure o secret STARS_TOKEN.';
+    const hint = process.env.STARS_TOKEN ? '' : ' Configure o secret STARS.';
     console.warn(`::warning::não consegui buscar stars (${err.message}); mantendo world.json atual.${hint}`);
     process.exit(0);
   } catch { throw err; }
