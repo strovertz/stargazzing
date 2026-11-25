@@ -13,9 +13,9 @@ export interface Point { x: number; y: number }
 export interface Plaza extends Point { main: boolean }
 
 export interface Tree { x: number; y: number; sp: number; growth: number; lastWater: number; /** dias desde o plantio (árvores antigas ficam enormes) */ age?: number }
-export interface WildTree { x: number; y: number; big: boolean; sp: number }
+export interface WildTree { x: number; y: number; big: boolean; sp: number; /** árvore do pomar, com frutas */ fruit?: boolean }
 /** Marco espalhado pelo mapa: moinho, torre de vigia, círculo de pedras, barraca de acampamento, ponte. */
-export interface Landmark { kind: 'moinho' | 'torre' | 'pedras' | 'barraca' | 'ponte' | 'caverna' | 'templo' | 'quadro'; x: number; y: number; w: number; v: number }
+export interface Landmark { kind: 'moinho' | 'torre' | 'pedras' | 'barraca' | 'ponte' | 'caverna' | 'templo' | 'quadro' | 'pântano' | 'cogumelos' | 'pomar' | 'pedreira' | 'praia' | 'cercado' | 'floresta'; x: number; y: number; w: number; v: number }
 /** Coluna da ágora: 0 inteira, 1 quebrada, 2 caída (tambores no chão). */
 export interface Column { x: number; y: number; kind: 0 | 1 | 2; h: number }
 

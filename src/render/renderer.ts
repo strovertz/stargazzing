@@ -136,6 +136,7 @@ export class Renderer {
     const g = this.mini.getContext('2d')!, img = g.createImageData(COLS, ROWS), d = img.data, { T } = this.sim.terrain;
     for (let i = 0; i < N; i++) {
       let c = MINI[T[i]!]!;
+      if (this.sim.terrain.deco[i] === 6) c = mix(c, hex('#000000'), 0.55);
       if (this.sim.wear[i]! >= 6) c = mix(c, hex('#4a3c2c'), 0.7);
       d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255;
     }
@@ -204,9 +205,9 @@ export class Renderer {
     const sx = (x: number) => (x - ox + 0.5) * cs, sy = (y: number) => (y - oy + 1) * ch;
     const inV = (x: number, y: number, up = 11) => x >= ox - 4 && x <= ox + vw + 4 && y >= oy - 1 && y <= oy + vh + up;
     const list = sim.agents.filter(a => a.present && !a.inside && inV(a.x, a.y, 3));
-    type TreeDraw = { x: number; y: number; kind: string; variant: number; scale: number; thirsty: boolean };
+    type TreeDraw = { x: number; y: number; kind: string; variant: number; scale: number; thirsty: boolean; fruit?: boolean };
     const trees: TreeDraw[] = [];
-    for (const w of sim.terrain.wild) if (inV(w.x, w.y)) trees.push({ x: w.x, y: w.y, kind: ['mata-copa', 'mata-pinho', 'cipreste'][w.sp]!, variant: h32(w.x, w.y, 5) % 4, scale: w.big ? 1.1 : 0.75, thirsty: false });
+    for (const w of sim.terrain.wild) if (inV(w.x, w.y)) trees.push({ x: w.x, y: w.y, kind: ['mata-copa', 'mata-pinho', 'cipreste'][w.sp]!, variant: h32(w.x, w.y, 5) % 4, scale: w.big ? 1.1 : 0.75, thirsty: false, fruit: !!w.fruit });
     for (const t of sim.trees) { const st = stageOf(t); if (st > 0 && inV(t.x, t.y)) trees.push({ x: t.x, y: t.y, kind: SPECIES[t.sp]!.n, variant: h32(t.x, t.y, 5) % 4, scale: [0, 0.4, 0.7, 1][st]! * ((t.age ?? 0) >= 30 ? 1.3 : (t.age ?? 0) >= 14 ? 1.15 : 1), thirsty: sim.tick - t.lastWater > 3000 && !rain }); }
     const evening = L < 0.95;
     const houses = sim.agents.filter(a => a.hut && inV(a.home.x - HOUSE_DX, a.home.y, 4)).map(a => ({ a, spr: houseVariant(a.house, a.hue, evening, (a.meta.days ?? 0) >= 14, cs, ch, this.dpr) }));
@@ -264,7 +265,11 @@ export class Renderer {
     drawPets(fx, sim, view, ts, posOf, i => { const a = sim.agents[i]!; return a.phase === 'stay' && a.state === 'REST' && (h >= 23 || h < 5.5); }, (y, draw) => ds.push({ y: y - 0.01, draw }));
     for (const { t, spr } of sprites) {
       const wind = sim.terrain.noise(t.x * 0.06 - ts * (0.2 + wx.wind * 0.5), t.y * 0.12, ts * 0.05), sk = wind * (0.02 + wx.wind * 0.11) + Math.sin(ts * (1.2 + wx.wind * 1.5) + t.x) * (0.004 + wx.wind * 0.012);
-      ds.push({ y: t.y + 0.01, draw: () => { fx.save(); fx.translate(sx(t.x), sy(t.y)); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h); fx.restore(); } });
+      ds.push({ y: t.y + 0.01, draw: () => {
+        fx.save(); fx.translate(sx(t.x), sy(t.y)); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h);
+        if (t.fruit) for (let k = 0; k < 7; k++) { const hh = h32(t.x * 7 + k, t.y, 11); fx.fillStyle = sim.season === 1 ? '#e8862a' : '#d8302a'; fx.beginPath(); fx.arc(((hh % 100) / 100 - 0.5) * spr.canopyW * 0.8, -spr.h * (0.45 + ((hh >>> 8) % 40) / 100), 1.8 * z, 0, 7); fx.fill(); }
+        fx.restore();
+      } });
     }
     for (const col of sim.terrain.columns) {
       if (col.kind === 2 || !inV(col.x, col.y, 6)) continue;
@@ -300,7 +305,7 @@ export class Renderer {
     }
     // marcos espalhados pelo mapa
     for (const lm of sim.terrain.landmarks) {
-      if (lm.kind === 'ponte' || !inV(lm.x + lm.w / 2, lm.y, 8)) continue;
+      if (lm.kind === 'ponte' || lm.kind === 'pântano' || lm.kind === 'cogumelos' || lm.kind === 'pomar' || lm.kind === 'pedreira' || lm.kind === 'praia' || lm.kind === 'cercado' || lm.kind === 'floresta' || !inV(lm.x + lm.w / 2, lm.y, 8)) continue;
       if (lm.kind === 'pedras') {
         for (const [dx, dy] of [[0, -2], [6, -2], [1, 0], [5, 0], [3, -3]] as const) {
           const spr = menhirSprite(lm.v + dx, L < 0.5, cs, ch, this.dpr), x = lm.x + dx, y = lm.y + dy;
@@ -470,6 +475,20 @@ export class Renderer {
       for (let k = 0; k < 8; k++) { const life = (ts * 0.4 + k / 8) % 1; fx.fillStyle = `rgba(110,110,118,${0.5 * (1 - life)})`; fx.fillText(k % 2 ? 'O' : 'o', sx(burn.x) + Math.sin(ts + k * 1.7) * 6 * z + life * 14 * z, sy(burn.y) - ch * 2.6 - life * 60 * z); }
     }
     drawDeer(fx, sim, view, tf);
+    // cogumelos que brilham à noite
+    if (L < 0.5 && z >= 0.65) {
+      const x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
+      fx.globalCompositeOperation = 'lighter';
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const hh = h32(x, y, seed + 21);
+        if (sim.terrain.deco[y * COLS + x] !== 2 || hh % 3) continue;
+        const px = sx(x) + ((hh >>> 4) % 10 - 5) * cs * 0.06, py = sy(y) - ch * 0.4, a = (0.35 + 0.25 * Math.sin(ts * 1.5 + hh)) * (1 - L);
+        const g = fx.createRadialGradient(px, py, 0, px, py, cs * 0.9); g.addColorStop(0, `rgba(120,220,255,${a})`); g.addColorStop(1, 'rgba(120,220,255,0)');
+        fx.fillStyle = g; fx.beginPath(); fx.arc(px, py, cs * 0.9, 0, 7); fx.fill();
+      }
+      fx.globalCompositeOperation = 'source-over';
+    }
+    this.denseFog(fx, sx, sy, inV, cs, ch, ts, L, z);
     for (const p of fires) if (p !== fires[fires.length - 1] || !burn) drawFire(fx, sx(p.x), sy(p.y) - ch * 0.45, cs * 1.5, ch * 1.5, ts, seed + p.x);
 
     // vagalumes e chuva
@@ -686,6 +705,39 @@ export class Renderer {
     if (mc && inV(mc.x, mc.y, 3)) tag(`mercador ${sim.merchant}`, sx(mc.x), sy(mc.y) - 14 * sc - 10, '#f2c14e');
     const sp = selected && this.screen.get(selected);
     if (sp) { fx.strokeStyle = '#f2c14e'; fx.lineWidth = 1.5; fx.beginPath(); fx.ellipse(sp.x, sp.y - 2 * z, 7 * sc, 2.4 * sc, 0, 0, 7); fx.stroke(); }
+  }
+
+  /** Névoa que escorre da mata fechada, olhos piscando lá dentro à noite e as ovelhas do cercado. */
+  private denseFog(fx: CanvasRenderingContext2D, sx: (x: number) => number, sy: (y: number) => number, inV: (x: number, y: number, up?: number) => boolean, cs: number, ch: number, ts: number, L: number, z: number): void {
+    const t = this.sim.terrain, d = t.dense, seed = t.seed, right = d.x0 > COLS / 2;
+    if (inV((d.x0 + d.x1) / 2, d.y0, 40) || inV(d.x0, d.y1) || inV(d.x1, d.y1)) {
+      for (let k = 0; k < 16; k++) {
+        // cada banco nasce dentro da mata e vai saindo devagar, sumindo no caminho
+        const life = (ts * 0.025 + k / 16) % 1, bx = d.x0 + ((h32(k, 5, seed) % 1000) / 1000) * (d.x1 - d.x0), by = d.y0 + 4 + ((h32(k, 6, seed) % 1000) / 1000) * (d.y1 - d.y0 - 4);
+        const x = bx + (right ? -1 : 1) * life * 26, y = by - life * 10, a = Math.sin(life * Math.PI) * (0.16 + (1 - L) * 0.12);
+        if (!inV(x, y, 12)) continue;
+        const px = sx(x), py = sy(y), r = cs * (6 + (h32(k, 7, seed) % 6));
+        const g = fx.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, `rgba(200,210,220,${a})`); g.addColorStop(1, 'rgba(200,210,220,0)');
+        fx.fillStyle = g; fx.beginPath(); fx.ellipse(px, py, r * 1.6, r * 0.6, 0, 0, 7); fx.fill();
+      }
+      if (L < 0.4) for (let k = 0; k < 7; k++) {
+        const slot = Math.floor(ts / 5 + k * 0.37), blink = (ts / 5 + k * 0.37) % 1;
+        if (blink > 0.85 || h32(slot, k, seed) % 3 === 0) continue;
+        const x = d.x0 + 3 + (h32(slot, k + 1, seed) % Math.max(1, d.x1 - d.x0 - 6)), y = d.y0 + 6 + (h32(slot, k + 2, seed) % Math.max(1, d.y1 - d.y0 - 8));
+        if (!inV(x, y)) continue;
+        fx.fillStyle = k % 3 ? 'rgba(255,220,90,.9)' : 'rgba(160,255,140,.85)';
+        fx.fillRect(sx(x) - 3 * z, sy(y) - ch * 0.6, 2 * z, 1.6 * z); fx.fillRect(sx(x) + 1.5 * z, sy(y) - ch * 0.6, 2 * z, 1.6 * z);
+      }
+    }
+    const p = t.pen;
+    if (z >= 0.65 && L > 0.25 && inV((p.x0 + p.x1) / 2, (p.y0 + p.y1) / 2, 4)) {
+      fx.font = `700 ${Math.round(9 + 4 * z)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+      for (let k = 0; k < 5; k++) {
+        const x = p.x0 + 2 + (p.x1 - p.x0 - 4) * (0.5 + 0.45 * t.noise(ts * 0.03 + k, k * 2.1, 9.1)), y = p.y0 + 2 + (p.y1 - p.y0 - 3) * (0.5 + 0.45 * t.noise(k * 1.3, ts * 0.03 + k, 4.4));
+        fx.fillStyle = '#f4f0e4'; fx.fillText('@', sx(x), sy(y) - ch * 0.5);
+        fx.fillStyle = '#2a2a2e'; fx.fillText(Math.sin(ts + k) > 0 ? '>' : '<', sx(x) + cs * 0.35 * (Math.sin(ts + k) > 0 ? 1 : -1), sy(y) - ch * 0.55);
+      }
+    }
   }
 
   drawMini(selected: Agent | null): void {

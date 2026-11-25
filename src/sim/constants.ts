@@ -1,5 +1,5 @@
-export const COLS = 320;
-export const ROWS = 96;
+export const COLS = 384;
+export const ROWS = 112;
 export const N = COLS * ROWS;
 /** 1 tick = 0,5 s de relógio real. */
 export const TICK_MS = 500;

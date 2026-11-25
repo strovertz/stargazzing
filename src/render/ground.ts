@@ -67,7 +67,7 @@ export class GroundCache {
   }
 
   private draw(c: HTMLCanvasElement, cx: number, cy: number, cw: number, ch: number): void {
-    const { T, H, M, ruinCh } = this.sim.terrain, seed = this.sim.terrain.seed, { wear, flower } = this.sim;
+    const { T, H, M, ruinCh, deco } = this.sim.terrain, seed = this.sim.terrain.seed, { wear, flower } = this.sim;
     c.width = Math.ceil(CHUNK * cw);
     c.height = Math.ceil(CHUNK * ch);
     const g = c.getContext('2d')!;
@@ -81,7 +81,8 @@ export class GroundCache {
       if (x >= COLS || y >= ROWS) continue;
       const i = y * COLS + x, t = T[i]!, w = wear[i]!;
       const trail = (t === Tile.Grass || t === Tile.Forest || t === Tile.Sand) && w >= 6;
-      g.fillStyle = trail ? '#17120c' : t === Tile.Floor && ruinCh[i] ? (ruinCh[i] === 'a' ? '#23251f' : ruinCh[i] === 'p' || ruinCh[i] === 'b' ? '#2a1a0e' : '#2a2923') : BG[t]!;
+      const dc = deco[i]!;
+      g.fillStyle = trail ? '#17120c' : dc === 6 && t === Tile.Forest ? '#060d08' : dc === 1 && t > Tile.Shallow ? '#16241a' : t === Tile.Floor && ruinCh[i] === 'q' ? '#2a2824' : t === Tile.Floor && ruinCh[i] === 'r' ? '#1c1a14' : t === Tile.Wall && ruinCh[i] === 'f' ? BG[3]! : t === Tile.Floor && ruinCh[i] ? (ruinCh[i] === 'a' ? '#23251f' : ruinCh[i] === 'p' || ruinCh[i] === 'b' ? '#2a1a0e' : '#2a2923') : BG[t]!;
       g.fillRect(lx * cw, ly * ch, cw + 0.5, ch + 0.5);
       const shore = t <= Tile.Shallow && (!isWater(x - 1, y) || !isWater(x + 1, y) || !isWater(x, y - 1) || !isWater(x, y + 1));
       for (let j = 0; j < SY; j++) for (let k = 0; k < SX; k++) {
@@ -89,6 +90,27 @@ export class GroundCache {
         let chr = '', col = '';
         if (trail) {
           if (roll < 55) { chr = pick(['.', ':', ',', '·', "'"], hh >>> 8); col = pick(DIRT_T, hh >>> 12); }
+        } else if (dc === 6 && t === Tile.Forest) {
+          // mata fechada: quase preta, só folhas escuras e musgo
+          if (roll < 40) { chr = pick([';', ',', '"', '%', '&'], hh >>> 6); col = pick(['#0e2214', '#14301a', '#1a3a20'], hh >>> 11); }
+        } else if (dc === 1 && t > Tile.Shallow) {
+          // pântano: juncos e lama
+          if (roll < 70) { chr = pick(['|', '!', 'ψ', ',', '|'], hh >>> 6); col = pick(['#5a7a3a', '#6a8a40', '#3a5a2a', '#4a3c2c'], hh >>> 11); }
+        } else if (dc === 2 && roll < 18) {
+          chr = pick(['n', 'o', 'n', '.'], hh >>> 6); col = (hh >>> 10) % 3 ? '#e85a4a' : '#f4ece0';
+        } else if (dc === 3 && (t === Tile.Grass || t === Tile.Forest)) {
+          // pomar: terra arada em fileiras
+          chr = j % 2 ? '=' : roll < 50 ? ',' : ''; col = j % 2 ? '#4a3622' : '#4f8a40';
+        } else if (dc === 5 && t === Tile.Sand && roll < 30) {
+          chr = pick(['°', '@', '*'], hh >>> 6); col = pick(['#f4d8d0', '#ffffff', '#f2b8a0'], hh >>> 11);
+        } else if (t === Tile.Wall && ruinCh[i] === 'f') {
+          // cerca de madeira
+          chr = k === 1 && (j === 0 || j === 3) ? '+' : k === 1 ? '|' : j === 1 || j === 2 ? '-' : ''; col = k === 1 ? '#8a5a32' : '#a8743e';
+        } else if (t === Tile.Floor && ruinCh[i] === 'r') {
+          // trilha de pedras chatas
+          if ((k + j + x) % 3 !== 0) { chr = pick(['o', 'O', '0'], hh >>> 6); col = pick(['#6a6a70', '#808088', '#5a5a60'], hh >>> 11); } else if (roll < 40) { chr = ','; col = '#3f7a38'; }
+        } else if (t === Tile.Floor && ruinCh[i] === 'q') {
+          chr = pick(['#', '=', '▪', '#'], (hh >>> 6) + k); col = pick(['#8a8478', '#6a665c', '#a8a294'], hh >>> 11);
         } else if (t === Tile.Grass || t === Tile.Forest) {
           if (flower[i] && roll < 30) { chr = pick(['*', 'o', '.', '*'], hh >>> 8); col = FLOWERS[flower[i]! - 1]!; }
           else if (t === Tile.Grass && roll < 90) {

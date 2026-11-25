@@ -24,6 +24,13 @@ export class Terrain {
   /** centro e raios da ágora */
   agora = { x: 0, y: 0, rx: 16, ry: 8 };
   readonly noise: Noise3;
+  /** enfeite do chão por célula: 1 pântano, 2 cogumelos, 3 pomar, 5 conchas, 6 mata fechada */
+  readonly deco = new Uint8Array(N);
+  /** mata fechada (canto do mapa) e o cercado com porteiras que leva até ela */
+  dense = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  pen = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  /** onde a trilha de pedra entra na mata */
+  trailEnd = { x: 0, y: 0 };
   /** muda quando a vila altera o chão (píer, colunas restauradas) */
   version = 0;
 
@@ -95,6 +102,119 @@ export class Terrain {
       if (c.length > best.length && c.length < ROWS * 1.4) best = c;
     }
     for (const i of best) if (T[i]! > Tile.Shallow) { T[i] = Tile.Stream; this.stream.push(i); }
+  }
+
+  private nearPen(x: number, y: number, m: number): boolean {
+    const p = this.pen;
+    return x >= p.x0 - m && x <= p.x1 + m && y >= p.y0 - m && y <= p.y1 + m;
+  }
+
+  /**
+   * Mata fechada num canto de baixo: tudo vira floresta escura. Ao lado, um cercado de madeira
+   * com porteiras, e duas trilhas de pedra que saem dele e entram na mata.
+   */
+  private carveDense(r: () => number): void {
+    const { T } = this, right = r() < 0.5, w = 54, h = 30;
+    const x0 = right ? COLS - w - 1 : 1, x1 = x0 + w, y0 = ROWS - h - 1, y1 = ROWS - 1;
+    this.dense = { x0, y0, x1, y1 };
+    const cx = (x0 + x1) / 2, cy = y1;
+    for (let y = y0 - 4; y <= y1; y++) for (let x = x0 - 6; x <= x1 + 6; x++) {
+      if (x < 0 || x >= COLS || y < 0) continue;
+      // borda irregular: elipse com ruído
+      const e = ((x - cx) / (w / 2)) ** 2 + ((y - cy) / h) ** 2 + this.noise(x * 0.15, y * 0.2, 5.5) * 0.35;
+      if (e < 1) { const i = y * COLS + x; T[i] = Tile.Forest; this.deco[i] = 6; }
+    }
+    // cercado entre a mata e o resto do mapa
+    const pw = 18, ph = 8, px0 = right ? x0 - pw - 4 : x1 + 4, py1 = ROWS - 6, py0 = py1 - ph;
+    this.pen = { x0: px0, y0: py0, x1: px0 + pw, y1: py1 };
+    const gateA = right ? px0 + pw : px0, gates = new Set([py0 + 2, py0 + 6]);
+    for (let y = py0; y <= py1; y++) for (let x = px0; x <= px0 + pw; x++) {
+      const i = y * COLS + x, edge = y === py0 || y === py1 || x === px0 || x === px0 + pw;
+      if (x < 0 || x >= COLS) continue;
+      if (edge && !(x === gateA && gates.has(y)) && !(y === py0 && x === px0 + (pw >> 1))) { T[i] = Tile.Wall; this.ruinCh[i] = 'f'; }
+      else if (T[i]! <= Tile.Shallow || T[i] === Tile.Rock || T[i] === Tile.Sand) T[i] = Tile.Grass;
+      if (!edge && this.deco[i] === 6) { T[i] = Tile.Grass; this.deco[i] = 0; }
+    }
+    // trilhas de pedra: das duas porteiras até dentro da mata
+    for (const gy of gates) {
+      let x = gateA + (right ? 1 : -1), y = gy;
+      for (let k = 0; k < 40; k++, x += right ? 1 : -1) {
+        if (x < 0 || x >= COLS) break;
+        if (k % 6 === 3) y += h32(x, gy, this.seed) % 2 ? 1 : 0;
+        const i = Math.min(ROWS - 2, y) * COLS + x;
+        T[i] = Tile.Floor; this.ruinCh[i] = 'r'; this.deco[i] = 0;
+        this.trailEnd = { x, y: Math.min(ROWS - 2, y) };
+        if (this.deco[i + (right ? 4 : -4)] === 6 && k > 12) break;
+      }
+    }
+    // portão da frente, virado para a vila: trilha curta para fora
+    for (let k = 1; k <= 5; k++) { const i = (py0 - k) * COLS + px0 + (pw >> 1); if (T[i] !== Tile.Wall) { T[i] = Tile.Floor; this.ruinCh[i] = 'r'; } }
+  }
+
+  /** Árvores bem juntas na mata fechada (passa por cima das regras de espaçamento). */
+  private plantDense(): void {
+    const { x0, y0, x1, y1 } = this.dense;
+    for (let y = y0 - 4; y < y1; y += 2) for (let x = x0 - 6; x <= x1 + 6; x += 2) {
+      const jx = x + (h32(x, y, this.seed) % 2), i = y * COLS + jx;
+      if (jx < 1 || jx >= COLS - 1 || y < 2 || this.deco[i] !== 6 || this.block[i] || this.T[i] !== Tile.Forest) continue;
+      if (h32(jx, y, 77) % 5 === 0) continue;
+      this.wild.push({ x: jx, y, big: h32(jx, y, 9) % 2 === 0, sp: 1 + (h32(jx, y, 4) % 2) });
+      this.block[i] = 1;
+    }
+  }
+
+  /** Pequenas áreas espalhadas: pântano, clareira de cogumelos, pomar, pedreira e uma praia. */
+  private placeAreas(r: () => number, lakes: { x: number; y: number; rx: number; ry: number }[]): void {
+    const { T, deco } = this, free = (x: number, y: number, rx: number, ry: number) => {
+      for (let yy = y - ry; yy <= y + ry; yy++) for (let xx = x - rx; xx <= x + rx; xx++) {
+        if (xx < 2 || yy < 2 || xx >= COLS - 2 || yy >= ROWS - 2) return false;
+        const t = T[yy * COLS + xx];
+        if ((t !== Tile.Grass && t !== Tile.Forest) || deco[yy * COLS + xx]) return false;
+      }
+      const a = this.agora;
+      return !(Math.abs(x - a.x) < a.rx + rx + 8 && Math.abs(y - a.y) < a.ry + ry + 6) && !this.plazas.some(p => Math.abs(p.x - x) < rx + 6 && Math.abs(p.y - y) < ry + 4) && !this.nearPen(x, y, rx + 3);
+    };
+    const spot = (rx: number, ry: number) => { for (let k = 0; k < 4000; k++) { const x = 6 + Math.floor(r() * (COLS - 12)), y = 5 + Math.floor(r() * (ROWS - 10)); if (free(x, y, rx, ry) && !this.landmarks.some(l => Math.abs(l.x - x) < 30 && Math.abs(l.y - y) < 14)) return [x, y] as const; } return null; };
+    const mark = (kind: Landmark['kind'], x: number, y: number) => this.landmarks.push({ kind, x, y, w: 1, v: 0 });
+    const sw = spot(8, 4);
+    if (sw) {
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -8; dx <= 8; dx++) {
+        if ((dx / 8) ** 2 + (dy / 4) ** 2 > 1) continue;
+        const i = (sw[1] + dy) * COLS + sw[0] + dx, hh = h32(sw[0] + dx, sw[1] + dy, this.seed) % 9;
+        deco[i] = 1;
+        if (hh < 3 && Math.abs(dx) < 7) T[i] = Tile.Shallow;
+      }
+      mark('pântano', sw[0], sw[1]);
+    }
+    const mu = spot(5, 3);
+    if (mu) { for (let dy = -3; dy <= 3; dy++) for (let dx = -5; dx <= 5; dx++) if ((dx / 5) ** 2 + (dy / 3) ** 2 <= 1) deco[(mu[1] + dy) * COLS + mu[0] + dx] = 2; mark('cogumelos', mu[0], mu[1]); }
+    const po = spot(7, 4);
+    if (po) {
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -6; dx <= 6; dx++) deco[(po[1] + dy) * COLS + po[0] + dx] = 3;
+      for (let dy = -2; dy <= 2; dy += 2) for (let dx = -5; dx <= 5; dx += 3) { const x = po[0] + dx, y = po[1] + dy; this.wild.push({ x, y, big: false, sp: 0, fruit: true }); this.block[y * COLS + x] = 1; }
+      mark('pomar', po[0], po[1] + 3);
+    }
+    // pedreira: um pedaço de rocha que vira chão de blocos cortados, com grama na frente
+    for (let k = 0; k < 6000; k++) {
+      const x = 6 + Math.floor(r() * (COLS - 12)), y = 6 + Math.floor(r() * (ROWS - 12));
+      if (T[y * COLS + x] !== Tile.Rock || T[(y + 3) * COLS + x] !== Tile.Grass || this.nearPen(x, y, 6)) continue;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -4; dx <= 4; dx++) { const i = (y + dy) * COLS + x + dx; if (T[i] === Tile.Rock) { T[i] = Tile.Floor; this.ruinCh[i] = 'q'; } }
+      mark('pedreira', x, y + 2);
+      break;
+    }
+    // praia: anel de areia com conchas em volta do maior lago
+    const big = [...lakes].sort((p, q) => q.rx * q.ry - p.rx * p.ry)[0]!;
+    for (let dy = -Math.ceil(big.ry * 1.6); dy <= big.ry * 1.6; dy++) for (let dx = -Math.ceil(big.rx * 1.5); dx <= big.rx * 1.5; dx++) {
+      const x = Math.round(big.x + dx), y = Math.round(big.y + dy);
+      if (x < 1 || y < 1 || x >= COLS - 1 || y >= ROWS - 1) continue;
+      const i = y * COLS + x, near = [-1, 1, -COLS, COLS, -2, 2].some(o => T[i + o]! <= Tile.Shallow);
+      if (near && (T[i] === Tile.Grass || T[i] === Tile.Forest) && !deco[i] && x > 2) { T[i] = Tile.Sand; if (h32(x, y, 3) % 4 === 0) deco[i] = 5; }
+    }
+    mark('praia', Math.round(big.x), Math.round(big.y + big.ry));
+    const pen = this.pen, d = this.dense;
+    mark('cercado', pen.x0 + ((pen.x1 - pen.x0) >> 1), pen.y0 + 2);
+    mark('floresta', this.trailEnd.x, this.trailEnd.y);
+    void d;
   }
 
   /** Tira árvores nativas de um retângulo (para abrir clareira em volta de uma construção). */
@@ -191,7 +311,7 @@ export class Terrain {
   private generate(): void {
     const { T, H, M, noise, seed } = this;
     const r = mulberry32(seed ^ 0x9e3779b9);
-    const lakes = [0, 1, 2, 3].map(() => ({ x: 20 + r() * (COLS - 40), y: 12 + r() * 72, rx: 12 + r() * 14, ry: 5 + r() * 6 }));
+    const lakes = [0, 1, 2, 3, 4].map(() => ({ x: 20 + r() * (COLS - 40), y: 12 + r() * (ROWS - 24), rx: 12 + r() * 14, ry: 5 + r() * 6 }));
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
       const i = y * COLS + x;
       let h = noise(x * 0.035, y * 0.07) + 0.5 * noise(x * 0.09, y * 0.18, 3.1) + 0.25 * noise(x * 0.2, y * 0.4, 7.7);
@@ -200,6 +320,7 @@ export class Terrain {
       H[i] = h; M[i] = m;
       T[i] = h < -0.44 ? Tile.Deep : h < -0.33 ? Tile.Shallow : h < -0.26 ? Tile.Sand : h > 0.5 ? Tile.Rock : m > 0.18 ? Tile.Forest : Tile.Grass;
     }
+    this.carveDense(r);
     this.carveStream(r);
     this.buildAgora(r);
     // ruínas menores espalhadas pela mata
@@ -224,9 +345,10 @@ export class Terrain {
       const x = 8 + Math.floor(r() * (COLS - 16)), y = 6 + Math.floor(r() * (ROWS - 12));
       let ok = true;
       for (let yy = y - 2; yy <= y + 2 && ok; yy++) for (let xx = x - 3; xx <= x + 3 && ok; xx++) if (T[yy * COLS + xx] !== Tile.Grass) ok = false;
-      if (!ok || this.plazas.some(p => Math.abs(p.x - x) < 28 && Math.abs(p.y - y) < 14)) continue;
+      if (!ok || this.plazas.some(p => Math.abs(p.x - x) < 28 && Math.abs(p.y - y) < 14) || this.nearPen(x, y, 4)) continue;
       this.plazas.push({ x, y, main: false });
     }
+    this.placeAreas(r, lakes);
     // fogueira: pedras e chamas ocupam 3x2 células
     for (const p of this.plazas) for (let dx = -1; dx <= 1; dx++) { const i = p.y * COLS + p.x + dx; this.block[i] = this.block[i - COLS] = 1; }
     // mata nativa
@@ -237,9 +359,11 @@ export class Terrain {
       if (this.wild.some(w => Math.abs(w.x - x) < 4 && Math.abs(w.y - y) < 3)) continue;
       if (this.plazas.some(p => Math.abs(p.x - x) < 10 && Math.abs(p.y - y) < 6)) continue;
       if (((x - this.agora.x) / (this.agora.rx + 3)) ** 2 + ((y - this.agora.y) / (this.agora.ry + 2)) ** 2 < 1) continue;
+      if (this.deco[i] || this.nearPen(x, y, 1)) continue;
       this.wild.push({ x, y, big: h32(x, y, 9) % 3 > 0, sp: h32(x, y, 4) % 3 });
       this.block[i] = 1;
     }
+    this.plantDense();
     this.placeLandmarks(r);
     // componente conexo a partir da praça principal
     const p0 = this.plazas[0]!;

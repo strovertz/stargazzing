@@ -722,12 +722,12 @@ export class Simulation {
     }
     if (st === 'SIGHT') {
       // marco mais interessante: um dos três mais perto de casa (barracas valem como acampamento)
-      const lms = this.terrain.landmarks.filter(l => l.kind !== 'barraca' || a.r() < 0.3)
+      const lms = this.terrain.landmarks.filter(l => (l.kind !== 'barraca' || a.r() < 0.3) && (l.kind !== 'floresta' || PROFS[a.prof] === 'explorador') && l.kind !== 'quadro')
         .map(l => ({ l, d: Math.abs(l.x - a.home.x) + Math.abs(l.y - a.home.y) * 2 })).sort((p, q) => p.d - q.d || p.l.x - q.l.x).slice(0, 3);
       if (!lms.length) return this.startWalk(a);
       const l = lms[Math.floor(a.r() * lms.length)]!.l;
-      a.sight = l.kind === 'pedras' ? 'círculo de pedras' : l.kind === 'torre' ? 'torre de vigia' : l.kind;
-      for (const [dx, dy] of [[1, 1], [0, 1], [2, 1], [-1, 0], [l.w, 0], [1, 2]] as const) {
+      a.sight = l.kind === 'pedras' ? 'círculo de pedras' : l.kind === 'torre' ? 'torre de vigia' : l.kind === 'floresta' ? 'floresta densa' : l.kind === 'cogumelos' ? 'clareira dos cogumelos' : l.kind;
+      for (const [dx, dy] of [[0, 0], [1, 1], [0, 1], [2, 1], [-1, 0], [l.w, 0], [1, 2], [-1, 1], [0, -1]] as const) {
         const x = l.x + dx, y = l.y + dy;
         if (y < ROWS && x < COLS && this.terrain.passable(y * COLS + x)) return this.goTo(a, x, y);
       }
@@ -830,6 +830,7 @@ export class Simulation {
         if (this.fire && --this.fire.hp <= 0) this.putOut(false);
         return;
       }
+      if (a.state === 'SIGHT' && a.sight === 'floresta densa') { a.inside = true; a.wait = 200 + Math.floor(a.r() * 200); a.bubble = ''; return; }
       if (a.state === 'SIGHT') {
         a.wait = 60 + Math.floor(a.r() * 90); a.bubble = a.sight === 'moinho' ? '~' : a.sight === 'torre de vigia' ? '!' : '*'; a.bubbleUntil = tick + 12;
         if (a.r() < 0.08) this.note(`${a.name} foi até ${a.sight === 'moinho' ? 'o moinho' : a.sight === 'ponte' ? 'a ponte' : a.sight === 'barraca' ? 'o acampamento' : `o ${a.sight === 'torre de vigia' ? 'alto da torre de vigia' : a.sight}`}`, 'encontro');
@@ -869,6 +870,11 @@ export class Simulation {
       return;
     }
     if (a.state === 'PLANT') this.build(a);
+    if (a.state === 'SIGHT' && a.inside) {
+      a.inside = false; a.bubble = '?'; a.bubbleUntil = tick + 16;
+      const tales = ['jurando ter ouvido sinos lá no fundo', 'com um cogumelo azul que brilha no escuro', 'dizendo que as árvores cochicham', 'sem saber explicar onde esteve', 'com uma pena branca do cervo', 'contando de uma clareira com mil vaga-lumes', 'com o mapa todo rabiscado'];
+      if (a.r() < 0.5) this.note(`${a.name} voltou da floresta densa ${tales[Math.floor(a.r() * tales.length)]}`, 'lenda');
+    }
     if (a.state === 'MINE' && a.inside) {
       a.inside = false;
       if (a.r() < 0.5) { a.crystals++; a.items.push('um cristal'); a.bubble = '◆'; a.bubbleUntil = tick + 16; if (a.crystals === 1 || a.r() < 0.1) this.note(`${a.name} saiu da caverna com um cristal`, 'trabalho'); }

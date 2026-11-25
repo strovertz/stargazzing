@@ -4,7 +4,7 @@ import { genesisFor, Simulation } from '../src/sim/simulation';
 import { affinity, commitBias, ecosystem, nightTune } from '../src/sim/extras';
 import { lookFor } from '../src/sim/look';
 import { h32 } from '../src/core/rng';
-import { DAY_MS } from '../src/sim/constants';
+import { COLS, DAY_MS } from '../src/sim/constants';
 import type { WorldFile } from '../src/sim/types';
 
 const W = world as WorldFile;
@@ -106,7 +106,7 @@ describe('casas', () => {
       expect(a.house).toBe(new Simulation(W, GENESIS).agents.find(b => b.name === a.name)!.house);
       if (a.house !== 3) continue;
       let wet = false;
-      for (let dy = -2; dy <= 3; dy++) for (let dx = -5; dx <= 3; dx++) if (T[(a.home.y + dy) * 320 + a.home.x + dx]! <= 1) wet = true;
+      for (let dy = -2; dy <= 3; dy++) for (let dx = -5; dx <= 3; dx++) if (T[(a.home.y + dy) * COLS + a.home.x + dx]! <= 1) wet = true;
       expect(wet).toBe(true);
     }
     expect(new Set(s.agents.map(a => a.house)).size).toBeGreaterThan(2);

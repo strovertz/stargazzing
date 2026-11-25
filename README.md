@@ -52,10 +52,13 @@ No site, o botão **Cartão p/ README** no card de cada morador já copia o mark
 | --- | --- |
 | **Moradores** | O hash do login define aparência, chapéu, espécie da árvore, ritmo, temperamento e profissão: lenhador, pescador, músico, jardineiro, explorador ou minerador. Um em cada quatro é coruja e fica na fogueira até tarde. |
 | **Relações** | A afinidade entre dois logins decide quem é amigo (sempre para para conversar e se visita), quem não se bica (desvia e resmunga) e quem forma casal e vai morar ao lado. |
+| **Casas e pets** | Cabana, casa de pedra, casa na árvore, palafita ou tenda, que ganham cerca, horta, varal e segundo andar com o tempo. Clique numa casa para ver a planta por dentro, em ASCII. Um terço dos moradores tem cachorro, gato, galinha, pato ou sapo. |
+| **Música** | Cada músico toca alaúde, flauta, tambor, harpa ou gaita; cada fogueira tem a sua melodia e dois músicos fazem dueto. |
 | **Envelhecimento** | Com 7 dias de vila o cabelo fica grisalho, com 30 alguns ganham barba e com 60 o cabelo fica branco. Árvores antigas ficam enormes. |
 | **Vila que cresce** | Poço, lanternas, mercado, píer, jardim e estátua surgem conforme chegam stars, e a cada 2 stars uma coluna da ágora é restaurada. Toda quarta às 19h o conselho vota a ordem das próximas obras. |
 | **Clima e calendário** | Sol, nuvens, neblina, garoa, chuva e tempestade com relâmpagos, sobre o horário real de São Paulo. Estações pela data (hemisfério sul), lua na fase de verdade, feira no fim de semana e corrida de vaga-lumes na sexta. |
 | **Natureza** | Coelhos e raposas seguem um modelo predador-presa dia a dia. Trilhas esquecidas viram flores. Um riacho desce até o lago com folhas e barquinhos de papel. |
+| **Cantos do mapa** | Pântano, clareira de cogumelos que brilham à noite, pomar, pedreira, praia e um cercado com ovelhas de onde saem trilhas para uma mata fechada que solta névoa. |
 | **Lendas** | Em noite de lua cheia aparece o cervo branco. Com 25 stars a mata revela um templo escondido, e com 50 o cristal dele acende. |
 | **Mutirão** | Na tempestade, um raio pode acertar uma árvore. Os vizinhos correm com baldes, apagam o fogo e replantam uma muda no lugar. |
 
