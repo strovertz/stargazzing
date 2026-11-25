@@ -31,7 +31,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 .fab .n{font:700 13px "JetBrains Mono",monospace;background:rgba(0,0,0,.18);border-radius:10px;padding:1px 7px}
 .drawer{position:absolute;top:0;right:0;bottom:0;width:min(400px,100%);padding:18px 18px 140px;overflow-y:auto;transform:translateX(105%);transition:transform .22s ease;border-radius:0;border-width:0 0 0 1px;background:rgba(8,13,17,.95);z-index:2}
 .drawer.open{transform:none}
-.drawer h2{font:700 24px/1.2 "Pixelify Sans",Inter,sans-serif;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center}
+.drawer h2{font:700 24px/1.2 "Pixelify Sans",Inter,sans-serif;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center;font-variant-ligatures:none}
 .drawer h2 button{font:400 24px Inter;color:var(--mute)}
 .how{margin:0;padding-left:1.2em;color:var(--mute)}
 .how li{margin-bottom:10px}.how b{color:var(--ink)}
@@ -122,3 +122,14 @@ body.vitrine .hud,body.vitrine .tools,body.vitrine .fabs,body.vitrine .mini,body
 .rank ol{margin:0;padding-left:20px}
 .rank li{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:2px 0;border-bottom:1px dashed rgba(255,255,255,.07)}
 .rank li span{color:var(--mute)}
+/* jogo leve: álbum, desejo e avisos */
+.album{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin-top:10px}
+.stk{border:1px dashed rgba(255,255,255,.18);border-radius:10px;padding:10px 6px;text-align:center;display:flex;flex-direction:column;gap:6px;align-items:center;font-size:11.5px;color:var(--mute);min-height:86px}
+.stk b{font-size:24px;line-height:1;color:rgba(255,255,255,.25)}
+.stk.on{border-style:solid;border-color:rgba(242,193,78,.55);background:rgba(242,193,78,.08);color:#f4efe4}
+.stk.on b{color:#f2c14e}
+.wish{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:24;padding:8px 16px;border-radius:999px;color:#fff4c8;font-weight:600;cursor:pointer;border:1px solid rgba(255,240,180,.5);animation:wishGlow 1.6s ease-in-out infinite}
+.wish[hidden],.toast[hidden]{display:none}
+@keyframes wishGlow{50%{box-shadow:0 0 22px rgba(255,240,180,.55)}}
+.toast{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);z-index:30;padding:10px 16px;border-radius:12px;font-size:13.5px;max-width:min(560px,90vw);text-align:center}
+body.embed .toast,body.vitrine .toast,body.vitrine .wish{display:none}

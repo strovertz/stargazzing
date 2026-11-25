@@ -32,6 +32,7 @@
     <button class="fab glass" id="openHow">Como funciona</button>
     <button class="fab glass" id="openTimelapse">Timelapse</button>
     <button class="fab glass" id="openRank">Ranking</button>
+    <button class="fab glass" id="openAlbum">Álbum</button>
     <button class="fab glass" id="openDiary">Diário</button>
     <button class="fab gold" id="openPlayers">Players <span class="n" id="nBadge">0</span></button>
   </div>
@@ -39,6 +40,13 @@
     <h2>Ranking <button data-close aria-label="Fechar">×</button></h2>
     <div id="rank" class="rank"></div>
   </aside>
+  <aside class="drawer glass" id="albumDrawer" aria-label="Álbum de figurinhas" aria-hidden="true">
+    <h2>Álbum de figurinhas <button data-close aria-label="Fechar">×</button></h2>
+    <p class="bio">Cada evento raro que você presenciar aqui vira figurinha. Todo dia tem um X escondido no mapa: clique nele para cavar. O álbum fica só no seu navegador.</p>
+    <div id="album"></div>
+  </aside>
+  <button class="wish glass" id="wish" hidden aria-label="Fazer um pedido para a estrela cadente">✦ fazer um pedido</button>
+  <div class="toast glass" id="toast" hidden role="status" aria-live="polite"></div>
   <div class="live glass" id="liveBar" hidden><span id="liveTxt"></span> <button id="liveBack">voltar ao vivo</button></div>
   <a class="embedLink glass" id="embedLink" hidden target="_blank" rel="noopener">Stargazzing ↗</a>
   <aside class="drawer glass" id="howDrawer" aria-label="Como funciona" aria-hidden="true">

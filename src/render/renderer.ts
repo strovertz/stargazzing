@@ -58,6 +58,11 @@ export class Renderer {
   /** retângulo de cada casa visível (para abrir a planta ao clicar) */
   /** papéis pregados no quadro (notícias do dia) e onde ele ficou na tela */
   boardPapers = 0;
+  /** X do tesouro do dia (jogo leve) e o morador favorito de quem visita */
+  treasure: { x: number; y: number } | null = null;
+  favorite: string | null = null;
+  private treasureRect: { x: number; y: number; r: number } | null = null;
+  treasureAt(px: number, py: number): boolean { const t = this.treasureRect; return !!t && Math.abs(px - t.x) <= t.r && Math.abs(py - t.y) <= t.r; }
   private boardRect: { x: number; y: number; w: number; h: number } | null = null;
   boardAt(px: number, py: number): boolean { const r = this.boardRect; return !!r && px >= r.x - 6 && px <= r.x + r.w + 6 && py >= r.y - 6 && py <= r.y + r.h + 6; }
   private houseRects: { a: Agent; x: number; y: number; w: number; h: number }[] = [];
@@ -704,6 +709,21 @@ export class Renderer {
       }
     }
 
+    // X do tesouro: duas riscas vermelhas no chão e um brilho de vez em quando
+    this.treasureRect = null;
+    const tr = this.treasure;
+    if (tr && inV(tr.x, tr.y, 2)) {
+      const x = sx(tr.x), y = sy(tr.y) - ch * 0.45, r = Math.max(5, cs * 0.6);
+      fx.strokeStyle = 'rgba(40,20,10,.6)'; fx.lineWidth = Math.max(4, 3.4 * z); fx.lineCap = 'round';
+      fx.beginPath(); fx.moveTo(x - r, y - r * 0.6 + 1); fx.lineTo(x + r, y + r * 0.6 + 1); fx.moveTo(x + r, y - r * 0.6 + 1); fx.lineTo(x - r, y + r * 0.6 + 1); fx.stroke();
+      fx.strokeStyle = '#e8463a'; fx.lineWidth = Math.max(2.5, 2.2 * z); fx.lineCap = 'round';
+      fx.beginPath(); fx.moveTo(x - r, y - r * 0.6); fx.lineTo(x + r, y + r * 0.6); fx.moveTo(x + r, y - r * 0.6); fx.lineTo(x - r, y + r * 0.6); fx.stroke();
+      fx.lineCap = 'butt';
+      const gl = (ts % 4) / 4;
+      if (gl < 0.18) { fx.fillStyle = `rgba(255,240,180,${1 - gl / 0.18})`; fx.font = `700 ${Math.round(8 + 4 * z)}px monospace`; fx.fillText('✦', x + r * 0.9, y - r); }
+      this.treasureRect = { x, y, r: Math.max(12, r * 1.6) };
+    }
+
     // escuridão com furos de luz (fogueiras sempre; janelas ao anoitecer)
     if (burn) fires.push({ x: burn.x, y: burn.y - 1 });
     const crystals = evening ? houses.filter(o => o.a.crystals > 0) : [];
@@ -1040,6 +1060,8 @@ export class Renderer {
     const tag = (text: string, x: number, y: number, col: string) => { const w = fx.measureText(text).width + 10; fx.fillStyle = 'rgba(4,7,9,.65)'; fx.beginPath(); fx.roundRect(x - w / 2, y - 7, w, 14, 7); fx.fill(); fx.fillStyle = col; fx.fillText(text, x, y); };
     if (z >= 0.65) for (const k of sim.forks) if (inV(k.x, k.y, 3)) tag(`⑂ ${k.login}`, sx(k.x + 0.5), sy(k.y) - ch * 2.8, '#9fd8ff');
     if (mc && inV(mc.x, mc.y, 3)) tag(`mercador ${sim.merchant}`, sx(mc.x), sy(mc.y) - 14 * sc - 10, '#f2c14e');
+    const fav = this.favorite ? sim.agents.find(a => a.name === this.favorite) : null, fp = fav && this.screen.get(fav);
+    if (fp && z >= 0.65) { fx.fillStyle = '#f07aa8'; fx.font = `700 ${Math.round(9 + 3 * z)}px Inter,sans-serif`; fx.fillText('♥', fp.x, fp.y - 20 * sc); }
     const sp = selected && this.screen.get(selected);
     if (sp) { fx.strokeStyle = '#f2c14e'; fx.lineWidth = 1.5; fx.beginPath(); fx.ellipse(sp.x, sp.y - 2 * z, 7 * sc, 2.4 * sc, 0, 0, 7); fx.stroke(); }
   }

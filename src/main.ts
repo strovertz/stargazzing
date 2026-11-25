@@ -21,6 +21,7 @@ import { fnv } from './core/rng';
 import { encode, restore } from './sim/snapshot';
 import { loadSnap, saveSnap } from './core/store';
 import type { ReplayJob, ReplayMsg } from './sim/worker';
+import { Play, treasureFor } from './ui/play';
 
 const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama', FARM: 'cuidando do trigo', SELL: 'vendendo na banca', BAKE: 'assando pão', MAIL: 'entregando cartas', CAMP: 'no acampamento' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -117,6 +118,10 @@ function renderCard(): void {
     b.addEventListener('click', () => { void navigator.clipboard?.writeText(text).then(() => { b.textContent = 'copiado ✓'; setTimeout(() => { b.textContent = label; }, 1600); }); });
     return b;
   };
+  const favB = document.createElement('button'), isFav = () => play.favorite() === a.name;
+  favB.textContent = isFav() ? '♥ favorito' : '♡ favoritar'; favB.setAttribute('aria-pressed', String(isFav()));
+  favB.addEventListener('click', () => { play.setFavorite(isFav() ? null : a.name); renderer.favorite = play.favorite(); favB.textContent = isFav() ? '♥ favorito' : '♡ favoritar'; favB.setAttribute('aria-pressed', String(isFav())); });
+  share.append(favB);
   share.append(mk('Copiar link', `${page}?u=${encodeURIComponent(a.name)}`), mk('Cartão p/ README', `[![${a.name} em Stargazzing](${page}cards/${encodeURIComponent(a.name.toLowerCase())}.svg)](${page}?u=${encodeURIComponent(a.name)})`));
   const ach = achievementsOf(sim, a), badges = document.createElement('div');
   badges.className = 'badges';
@@ -218,6 +223,10 @@ function start(): void {
     renderer.warm = true; renderer.drawScene((sim.tick * TICK_MS) / 1000);
     el.hidden = true; ready = true; savedHour = Math.floor(sim.tick / CHECK_EVERY);
     renderStatus(); renderPlayers(true);
+    play.reset(sim);
+    renderer.treasure = play.found(sim) ? null : treasureFor(sim);
+    renderer.favorite = play.favorite();
+    welcomeBack();
     // ?u=login: abre já seguindo esse morador
     const want = new URLSearchParams(location.search).get('u')?.toLowerCase();
     const who = want ? sim.agents.find(a => a.name.toLowerCase() === want) : undefined;
@@ -387,7 +396,7 @@ function loop(now: number): void {
     renderer.drawActors(tf, selected, hovered);
     tuneQuality(performance.now() - t0, now);
     if (now - lastMini > 500) { renderer.drawMini(selected); lastMini = now; }
-    if (now - lastUi > 1000) { renderer.boardPapers = boardNews(sim).count; renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
+    if (now - lastUi > 1000) { gameTick(tf); renderer.boardPapers = boardNews(sim).count; renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
     if (amb.on && now - lastSound > 200) { updateSound(ts); lastSound = now; }
   }
   requestAnimationFrame(loop);
@@ -440,6 +449,35 @@ function renderRank(): void {
   sec('A vila hoje', [['Moradores', `${present.length} de ${sim.agents.length}`], ['Árvores', String(sim.trees.length)], ['Cartas entregues', String(sim.letters.length)], ['Sacas no celeiro', String(sim.wheatStock)], ['Coelhos e raposas', `${sim.eco.rabbits} · ${sim.eco.foxes}`], ['Entradas no diário', String(sim.log.length)]]);
 }
 
+/** Avisos curtos no canto da tela (figurinha nova, tesouro, desejo) */
+const toasts: string[] = [];
+let toastBusy = false;
+function toast(text: string): void {
+  toasts.push(text);
+  if (toastBusy) return;
+  const next = () => {
+    const t = toasts.shift(), el = $('toast');
+    if (!t) { toastBusy = false; el.hidden = true; return; }
+    toastBusy = true; el.textContent = t; el.hidden = false;
+    setTimeout(next, 4200);
+  };
+  next();
+}
+const play = new Play(toast);
+/** Uma vez por segundo: figurinhas, botão de desejo e hora da última visita. */
+function gameTick(tf: number): void {
+  if (timelapse.on) return;
+  play.check(sim);
+  $('wish').hidden = !play.canWish(sim, tf) || document.body.classList.contains('embed');
+  if (offset === 0) play.markVisit(Date.now());
+}
+/** "Desde a sua última visita": resumo do morador favorito quando a pessoa volta. */
+function welcomeBack(): void {
+  const fav = play.favorite(), a = fav ? sim.agents.find(x => x.name === fav) : undefined, last = play.lastVisit();
+  if (!a || offset !== 0 || Date.now() - last < 10 * 60_000) return;
+  const since = last >= sim.genesis ? `desde as ${fmt(last)}` : 'hoje';
+  toast(`♥ ${a.name} ${since}: ${play.sinceLast(sim, a).join(' · ')}`);
+}
 const timelapse = new Timelapse($('timelapse'));
 const houseView = new HouseView($('houseView'));
 const dialogue = new Dialogue($('dialogue'));
@@ -469,6 +507,8 @@ function photo(): void {
 
 // ---------- eventos ----------
 function bind(): void {
+  $('openAlbum').addEventListener('click', () => { openDrawer('albumDrawer'); play.renderAlbum($('album')); });
+  $('wish').addEventListener('click', () => { play.wish(sim); $('wish').hidden = true; renderer.releaseLantern(clock() / 1000 - sim.genesis / 1000); });
   $('openRank').addEventListener('click', () => { openDrawer('rankDrawer'); renderRank(); });
   $('liveBack').addEventListener('click', () => { offset = 0; $('liveBar').hidden = true; history.replaceState(null, '', location.pathname); start(); });
   for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true });
@@ -499,6 +539,8 @@ function bind(): void {
     if (key === 'q') board.show(sim);
     if (key === 'v') vitrine(!vitrineOn);
     if (key === 'r') { openDrawer('rankDrawer'); renderRank(); }
+    if (key === 'a') { openDrawer('albumDrawer'); play.renderAlbum($('album')); }
+    if (key === 'w' && !$('wish').hidden) $('wish').click();
     if (key === 'p') openDrawer('playersDrawer');
     if (key === 'd') { diaryKey = ''; openDrawer('diaryDrawer'); renderDiary(); }
     if (key === 'c') openDrawer('howDrawer');
@@ -549,6 +591,7 @@ function bind(): void {
   });
   fg.addEventListener('pointerup', e => {
     if (drag && !drag.moved) {
+      if (renderer.treasureAt(e.offsetX, e.offsetY)) { play.dig(sim); renderer.treasure = null; drag = null; return; }
       const a = renderer.agentAt(e.offsetX, e.offsetY), h = a ? null : renderer.houseAt(e.offsetX, e.offsetY);
       if (!a && !h && renderer.boardAt(e.offsetX, e.offsetY)) { board.show(sim); drag = null; return; }
       if (a?.present && !a.inside) dialogue.show(sim, a); else if (!a) dialogue.close();
