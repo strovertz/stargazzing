@@ -7,7 +7,7 @@ import { CW, CH, Renderer } from './render/renderer';
 import { spritesFor } from './render/sprites';
 import { Ambience } from './audio/ambience';
 import { lightningAt } from './sim/weather';
-import { INSTRUMENTS, PROFS } from './sim/constants';
+import { HOUSES, INSTRUMENTS, PROFS } from './sim/constants';
 import { NEEDS, STARS_PER_COLUMN } from './sim/village';
 import { moonPhase, nightTune } from './sim/extras';
 import type { RepoData } from './sim/types';
@@ -26,6 +26,10 @@ const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'p
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
+/** ?t=21:30 mostra a vila nesse horário de hoje e segue andando a partir dele */
+let offset = 0;
+const clock = () => Date.now() + offset;
+const params = new URLSearchParams(location.search);
 let sim: Simulation;
 let renderer: Renderer;
 let simMs = 0, ready = false, follow = false;
@@ -191,7 +195,7 @@ function openDrawer(id: string): void {
 
 // ---------- reconstrução do dia ----------
 function start(): void {
-  const now = Date.now(), gen = ++startGen;
+  const now = clock(), gen = ++startGen;
   sim = new Simulation(world, genesisFor(now, tz()));
   if (renderer) renderer.setSim(sim);
   else renderer = new Renderer($<HTMLCanvasElement>('bg'), $<HTMLCanvasElement>('fg'), $<HTMLCanvasElement>('mini'), sim);
@@ -244,7 +248,7 @@ function start(): void {
       if (e.data.kind === 'progress') { show(e.data.tick, from); return; }
       w.terminate();
       restore(sim, e.data.snap);
-      sim.runUntil(sim.tickAt(Date.now()), 5000);
+      sim.runUntil(sim.tickAt(clock()), 5000);
       finish(from);
     };
     w.postMessage({ world, genesis: sim.genesis, target, key, from: snap && from ? snap : undefined } satisfies ReplayJob);
@@ -368,11 +372,12 @@ function loop(now: number): void {
   const idle = !follow && !timelapse.on && now - lastInput > 20_000;
   if (ready && !document.hidden && now - lastFrame >= (idle ? IDLE_MS : FRAME_MS)) {
     lastFrame = now;
-    simMs = Date.now(); // sempre ao vivo: o mundo segue o relógio real
+    simMs = clock(); // ao vivo: o mundo segue o relógio real (ou o horário do link ?t=)
     sim.runUntil(sim.tickAt(simMs), 5000);
     if (Math.floor(sim.tick / CHECK_EVERY) > savedHour) { savedHour = Math.floor(sim.tick / CHECK_EVERY); checkpoint(); }
     const tf = (simMs - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;
-    if (follow && selected?.present) {
+    if (vitrineOn) cinema(now, tf);
+    else if (follow && selected?.present) {
       const a = selected, f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace));
       const tx = a.px + (a.x - a.px) * f, ty = a.py + (a.y - a.py) * f, c = renderer.cam;
       if (Math.abs(tx - c.x) + Math.abs(ty - c.y) > 0.02) { c.x += (tx - c.x) * 0.08; c.y += (ty - c.y) * 0.08; renderer.clampCam(); }
@@ -388,6 +393,53 @@ function loop(now: number): void {
   requestAnimationFrame(loop);
 }
 
+/** Modo vitrine (tecla V): tela cheia sem interface e câmera passeando sozinha pela vila. */
+let vitrineOn = false, shot = { until: 0, x: 0, y: 0, zi: 4 };
+function vitrine(on: boolean): void {
+  vitrineOn = on;
+  document.body.classList.toggle('vitrine', on);
+  if (on) { openDrawer(''); follow = false; shot.until = 0; void document.documentElement.requestFullscreen?.().catch(() => undefined); }
+  else if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+}
+function cinema(now: number, tf: number): void {
+  if (now > shot.until) {
+    // próxima cena: a ágora, um morador fazendo algo, o campo, um acampamento ou a mata
+    const k = Math.floor(now / 14_000), r = (n: number) => fnv(`${k}|${n}`) % 1000 / 1000;
+    const busy = sim.agents.filter(a => a.present && !a.inside && a.state !== 'REST');
+    const spots: { x: number; y: number }[] = [sim.terrain.agora, ...(sim.field ? [{ x: sim.field.x + 6, y: sim.field.y + 2 }] : []), ...sim.forks.map(f => ({ x: f.x + 3, y: f.y + 1 })), { x: (sim.terrain.dense.x0 + sim.terrain.dense.x1) / 2, y: sim.terrain.dense.y0 + 4 }];
+    const who = busy.length && r(1) < 0.55 ? busy[Math.floor(r(2) * busy.length)]! : null;
+    const p = who ?? spots[Math.floor(r(3) * spots.length)]!;
+    shot = { until: now + 14_000, x: p.x, y: p.y, zi: 3 + Math.floor(r(4) * 3) };
+    if (who) { selected = who; } else selected = null;
+    renderer.setZoom(shot.zi);
+  }
+  const a = selected;
+  if (a?.present) { const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)); shot.x = a.px + (a.x - a.px) * f; shot.y = a.py + (a.y - a.py) * f; }
+  const c = renderer.cam;
+  c.x += (shot.x - c.x) * 0.025; c.y += (shot.y - c.y) * 0.025; renderer.clampCam();
+}
+
+/** Ranking e estatísticas da vila, tudo do estado de agora. */
+function renderRank(): void {
+  const el = $('rank'); el.textContent = '';
+  const present = sim.agents.filter(a => a.present);
+  const sec = (title: string, rows: [string, string][]) => {
+    const h = document.createElement('h3'), ol = document.createElement('ol');
+    h.textContent = title;
+    for (const [n, v] of rows) { const li = document.createElement('li'), b = document.createElement('b'), sp = document.createElement('span'); b.textContent = n; sp.textContent = v; li.append(b, sp); ol.append(li); }
+    el.append(h, ol);
+  };
+  const top = (f: (a: Agent) => number, unit: (n: number) => string) => present.map(a => [a, f(a)] as const).filter(x => x[1] > 0).sort((p, q) => q[1] - p[1] || (p[0].name < q[0].name ? -1 : 1)).slice(0, 5).map(([a, n]) => [a.name, unit(n)] as [string, string]);
+  sec('Mais antigos', top(a => a.meta.days ?? 0, n => `${n} dia${n > 1 ? 's' : ''}`));
+  sec('Mais amigos', top(a => a.friends.length, n => `${n} amigo${n > 1 ? 's' : ''}`));
+  sec('Baú mais cheio', top(a => a.items.length, n => `${n} ite${n > 1 ? 'ns' : 'm'}`));
+  sec('Mais citados no diário', top(a => sim.log.filter(e => e.text.includes(a.name)).length, n => `${n}×`));
+  const count = (l: string[]) => [...l.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map<string, number>())].sort((p, q) => q[1] - p[1]).map(([k, n]) => [k, String(n)] as [string, string]);
+  sec('Profissões', count(present.map(a => PROFS[a.prof]!)));
+  sec('Casas', count(present.map(a => HOUSES[a.house]!)));
+  sec('A vila hoje', [['Moradores', `${present.length} de ${sim.agents.length}`], ['Árvores', String(sim.trees.length)], ['Cartas entregues', String(sim.letters.length)], ['Sacas no celeiro', String(sim.wheatStock)], ['Coelhos e raposas', `${sim.eco.rabbits} · ${sim.eco.foxes}`], ['Entradas no diário', String(sim.log.length)]]);
+}
+
 const timelapse = new Timelapse($('timelapse'));
 const houseView = new HouseView($('houseView'));
 const dialogue = new Dialogue($('dialogue'));
@@ -395,7 +447,7 @@ const board = new BoardView($('board'));
 
 /** Modo foto: redesenha sem nomes nem balões, junta chão e atores e baixa um PNG com legenda. */
 function photo(): void {
-  const tf = (Date.now() - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;
+  const tf = (clock() - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;
   renderer.hideLabels = true;
   renderer.drawScene(ts); renderer.drawActors(tf, null, null);
   const bg = $<HTMLCanvasElement>('bg'), fg = $<HTMLCanvasElement>('fg'), out = document.createElement('canvas');
@@ -417,12 +469,14 @@ function photo(): void {
 
 // ---------- eventos ----------
 function bind(): void {
+  $('openRank').addEventListener('click', () => { openDrawer('rankDrawer'); renderRank(); });
+  $('liveBack').addEventListener('click', () => { offset = 0; $('liveBar').hidden = true; history.replaceState(null, '', location.pathname); start(); });
   for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true });
   // aba escondida: o laço para; ao voltar depois de muito tempo (ou noutro dia), retoma do checkpoint
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); if (ready) checkpoint(); return; }
     lastInput = performance.now();
-    if (ready && (Date.now() - hiddenAt > 30 * 60_000 || genesisFor(Date.now(), tz()) !== sim.genesis)) start();
+    if (ready && (Date.now() - hiddenAt > 30 * 60_000 || genesisFor(clock(), tz()) !== sim.genesis)) start();
   });
   $('openHow').addEventListener('click', () => openDrawer('howDrawer'));
   $('openPlayers').addEventListener('click', () => openDrawer('playersDrawer'));
@@ -432,10 +486,10 @@ function bind(): void {
   const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
   let kq: string[] = [];
   addEventListener('keydown', e => {
-    if (e.key === 'Escape') { openDrawer(''); timelapse.stop(); houseView.close(); dialogue.close(); board.close(); }
+    if (e.key === 'Escape') { if (vitrineOn) vitrine(false); openDrawer(''); timelapse.stop(); houseView.close(); dialogue.close(); board.close(); }
     if (dialogue.open && (e.key === ' ' || e.key === 'Enter') && (e.target as HTMLElement).tagName !== 'BUTTON') { e.preventDefault(); dialogue.advance(); return; }
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
-    const ts = Date.now() / 1000 - sim.genesis / 1000;
+    const ts = clock() / 1000 - sim.genesis / 1000;
     kq = [...kq, e.key.length === 1 ? e.key.toLowerCase() : e.key].slice(-KONAMI.length);
     if (kq.join() === KONAMI.join()) { renderer.starRain(ts); kq = []; $('msg').textContent = 'Chuva de estrelas! ★'; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -443,6 +497,8 @@ function bind(): void {
     if (key === 'l') renderer.releaseLantern(ts);
     // atalhos de teclado (a lista aparece em "Como funciona")
     if (key === 'q') board.show(sim);
+    if (key === 'v') vitrine(!vitrineOn);
+    if (key === 'r') { openDrawer('rankDrawer'); renderRank(); }
     if (key === 'p') openDrawer('playersDrawer');
     if (key === 'd') { diaryKey = ''; openDrawer('diaryDrawer'); renderDiary(); }
     if (key === 'c') openDrawer('howDrawer');
@@ -544,6 +600,18 @@ async function boot(): Promise<void> {
   $('dataNote').textContent = `${n} stargazer${n === 1 ? '' : 's'} reais de ${world.repo}` +
     (world.generatedAt ? `, lidos em ${new Date(world.generatedAt).toLocaleString('pt-BR')}.` : '.') +
     ' A lista é atualizada a cada star nova e a cada 30 minutos.';
+  const t = params.get('t')?.match(/^(\d{1,2}):(\d{2})$/);
+  if (t && +t[1]! < 24 && +t[2]! < 60) {
+    const g = genesisFor(Date.now(), world.timezoneOffsetHours);
+    offset = g + (+t[1]! * 60 + +t[2]!) * 60_000 - Date.now();
+    $('liveTxt').textContent = `Vendo a vila às ${t[1]!.padStart(2, '0')}:${t[2]} de hoje`;
+    $('liveBar').hidden = false;
+  }
+  if (params.has('embed')) {
+    document.body.classList.add('embed');
+    const l = $<HTMLAnchorElement>('embedLink'); l.href = `${location.origin}${import.meta.env.BASE_URL}`; l.hidden = false;
+  }
+  if ('serviceWorker' in navigator && import.meta.env.PROD) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined);
   await document.fonts?.load('16px "JetBrains Mono"').catch(() => undefined);
   start();
   try { const q = Number(localStorage.getItem('qualidade') ?? 2); if (q === 0 || q === 1) renderer.setQuality(q); } catch { /* modo privado */ }

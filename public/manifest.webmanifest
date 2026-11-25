@@ -1,0 +1,12 @@
+{
+  "name": "Stargazzing",
+  "short_name": "Stargazzing",
+  "description": "Mundo ASCII vivo onde cada stargazer do repositório vira um morador.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#050807",
+  "theme_color": "#050807",
+  "lang": "pt-BR",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

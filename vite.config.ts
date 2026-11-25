@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { defineConfig, type Plugin } from 'vitest/config';
 import { LOGIN, residentCard, villageCard } from './src/cards/svg';
+import { buildPages } from './src/cards/pages';
 import type { WorldFile } from './src/sim/types';
 
 // CSP só no build: o servidor de dev do Vite injeta estilos inline.
@@ -25,6 +26,9 @@ const cards: Plugin = {
     const now = Date.now(), list = world.stargazers.filter(e => LOGIN.test(e.login));
     for (const e of list) this.emitFile({ type: 'asset', fileName: `cards/${e.login.toLowerCase()}.svg`, source: residentCard(e, now, SITE) });
     this.emitFile({ type: 'asset', fileName: 'card.svg', source: villageCard(list, now) });
+    // feed do diário e páginas públicas por morador (/m/login/), com o dia simulado até agora
+    try { world.extra = JSON.parse(readFileSync(new URL('./public/repo.json', import.meta.url), 'utf8')); } catch { /* sem dados do repo */ }
+    for (const p of buildPages(world, now, SITE)) this.emitFile({ type: 'asset', fileName: p.file, source: p.body });
   },
 };
 

@@ -437,7 +437,7 @@ export class Simulation {
   private give(a: Agent, b: Agent, item: string): void {
     const k = a.items.indexOf(item);
     if (k >= 0) a.items.splice(k, 1);
-    b.items.push(`${item} (de ${a.name})`);
+    if (b.items.length < 12) b.items.push(`${item} (de ${a.name})`);
     if (b.items.length > 12) b.items.shift();
   }
 
@@ -1146,14 +1146,14 @@ export class Simulation {
     }
     if (a.state === 'MINE' && a.inside) {
       a.inside = false;
-      if (a.r() < 0.5) { a.crystals++; a.items.push('um cristal'); a.bubble = '◆'; a.bubbleUntil = tick + 16; if (a.crystals === 1 || a.r() < 0.1) this.note(`${a.name} saiu da caverna com um cristal`, 'trabalho'); }
+      if (a.r() < 0.5) { a.crystals++; if (a.items.length < 12) a.items.push('um cristal'); a.bubble = '◆'; a.bubbleUntil = tick + 16; if (a.crystals === 1 || a.r() < 0.1) this.note(`${a.name} saiu da caverna com um cristal`, 'trabalho'); }
     }
     if (a.state === 'WATER' && a.tree) a.tree.lastWater = tick;
     if ((a.state === 'FISH' || a.state === 'BOAT') && a.r() < (PROFS[a.prof] === 'pescador' ? 0.6 : 0.3)) {
       const roll = a.r(), fish = roll < 0.04 ? 'um peixe dourado' : roll < 0.1 ? 'uma bota velha' : ['um lambari', 'uma traíra', 'um bagre'][Math.floor(a.r() * 3)]!;
       a.bubble = fish === 'uma bota velha' ? '?' : '><>'; a.bubbleUntil = tick + 10;
       if (fish === 'um peixe dourado' || fish === 'uma bota velha' || a.r() < 0.08) this.note(`${a.name} pescou ${fish}`, 'pesca');
-      if (fish === 'um peixe dourado' || (a.r() < 0.1 && a.items.length < 8)) a.items.push(fish);
+      if ((fish === 'um peixe dourado' && a.items.length < 12) || (a.r() < 0.1 && a.items.length < 8)) a.items.push(fish);
     }
     this.decide(a);
   }

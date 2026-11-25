@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Mundo ASCII vivo: cada stargazer do repositório vira um morador que planta uma árvore.">
 <title>Stargazzing</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#050807">
+<link rel="alternate" type="application/feed+json" title="Diário de Stargazzing" href="feed.json">
+<link rel="alternate" type="application/rss+xml" title="Diário de Stargazzing" href="feed.xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Pixelify+Sans:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
@@ -26,9 +31,16 @@
   <div class="fabs">
     <button class="fab glass" id="openHow">Como funciona</button>
     <button class="fab glass" id="openTimelapse">Timelapse</button>
+    <button class="fab glass" id="openRank">Ranking</button>
     <button class="fab glass" id="openDiary">Diário</button>
     <button class="fab gold" id="openPlayers">Players <span class="n" id="nBadge">0</span></button>
   </div>
+  <aside class="drawer glass" id="rankDrawer" aria-label="Ranking e estatísticas" aria-hidden="true">
+    <h2>Ranking <button data-close aria-label="Fechar">×</button></h2>
+    <div id="rank" class="rank"></div>
+  </aside>
+  <div class="live glass" id="liveBar" hidden><span id="liveTxt"></span> <button id="liveBack">voltar ao vivo</button></div>
+  <a class="embedLink glass" id="embedLink" hidden target="_blank" rel="noopener">Stargazzing ↗</a>
   <aside class="drawer glass" id="howDrawer" aria-label="Como funciona" aria-hidden="true">
     <h2>Como funciona <button data-close aria-label="Fechar">×</button></h2>
     <ol class="how">
