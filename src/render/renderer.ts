@@ -125,7 +125,7 @@ export class Renderer {
     bx.imageSmoothingEnabled = false;
     const c0 = Math.max(0, Math.floor(ox / CHUNK)), c1 = Math.min(Math.ceil(COLS / CHUNK) - 1, Math.floor((ox + vw) / CHUNK));
     const r0 = Math.max(0, Math.floor(oy / CHUNK)), r1 = Math.min(Math.ceil(ROWS / CHUNK) - 1, Math.floor((oy + vh) / CHUNK));
-    const budget = { n: this.warm ? 99 : 4 };
+    const budget = { n: this.warm ? 99 : 12 };
     this.warm = false;
     let pending = false;
     for (let cy = r0; cy <= r1; cy++) for (let cx = c0; cx <= c1; cx++) {
@@ -219,18 +219,18 @@ export class Renderer {
     }
 
     // escuridão com furos de luz (fogueiras sempre; janelas ao anoitecer)
-    const dark = 0.14 + (1 - L) * 0.66 + (rain ? 0.08 : 0);
+    const dark = 0.05 + (1 - L) * 0.47 + (rain ? 0.06 : 0);
     const dx = this.dx;
     dx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     dx.globalCompositeOperation = 'source-over';
     dx.clearRect(0, 0, VW, VH);
-    dx.fillStyle = `rgba(3,5,14,${Math.min(0.9, dark)})`;
+    dx.fillStyle = `rgba(8,12,30,${Math.min(0.6, dark)})`;
     dx.fillRect(0, 0, VW, VH);
     dx.globalCompositeOperation = 'destination-out';
     const hole = (x: number, y: number, r: number, s: number) => { const g = dx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${s})`); g.addColorStop(0.55, `rgba(0,0,0,${s * 0.55})`); g.addColorStop(1, 'rgba(0,0,0,0)'); dx.fillStyle = g; dx.beginPath(); dx.arc(x, y, r, 0, 7); dx.fill(); };
     const flick = (k: number) => 1 + Math.sin(ts * 11 + k) * 0.05 + Math.sin(ts * 23 + k * 3) * 0.035;
-    for (const p of fires) hole(sx(p.x), sy(p.y) - ch * 0.5, cs * 8 * flick(p.x), 0.95);
-    if (evening) for (const { a, spr } of houses) hole(sx(a.home.x - 1), sy(a.home.y) - spr.h * 0.3, cs * 3.2, 0.75 * (1 - L));
+    for (const p of fires) hole(sx(p.x), sy(p.y) - ch * 0.5, cs * 11 * flick(p.x), 0.95);
+    if (evening) for (const { a, spr } of houses) hole(sx(a.home.x - 1), sy(a.home.y) - spr.h * 0.3, cs * 4.5, 0.8 * (1 - L));
     fx.drawImage(this.dark, 0, 0, VW, VH);
     // brilho quente
     fx.globalCompositeOperation = 'lighter';

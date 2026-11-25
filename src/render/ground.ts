@@ -12,15 +12,15 @@ const SX = 3, SY = 4;
 
 const pick = <T>(arr: readonly T[], n: number) => arr[n % arr.length]!;
 const BLADES = [',', "'", '"', '`', '|', ';', "'", ','];
-const GRASS_T = ['#1c4427', '#255632', '#2f673b', '#3b7746', '#4c8a55'];
-const FOREST_T = ['#12291a', '#183621', '#20432a', '#295234'];
+const GRASS_T = ['#25552f', '#2f683a', '#3a7a44', '#478b50', '#5a9e60'];
+const FOREST_T = ['#1a3a24', '#21482c', '#2a5635', '#34663f'];
 const DIRT_T = ['#3a2f23', '#4a3c2c', '#5c4a36'];
 const SAND_T = ['#5e5139', '#74654a', '#8a7854'];
 const ROCK_T = ['#34363c', '#474a51', '#5e6169', '#7a7d86'];
 const STONE_T = ['#3c3c44', '#50505a', '#686874', '#84848f'];
 const DEEP_T = ['#0f2d42', '#143a55', '#1b4a6a'];
 const SHALLOW_T = ['#1b4d6a', '#236183', '#2f789c'];
-const BG: Record<number, string> = { 0: '#03101a', 1: '#061a27', 2: '#1e1a12', 3: '#0c1c12', 4: '#08140d', 5: '#141518', 6: '#18181d', 7: '#101013' };
+const BG: Record<number, string> = { 0: '#06182a', 1: '#0a2536', 2: '#2a241a', 3: '#122a1a', 4: '#0d1f14', 5: '#141518', 6: '#18181d', 7: '#101013' };
 
 export class GroundCache {
   private chunks = new Map<number, { canvas: HTMLCanvasElement; sig: number }>();
