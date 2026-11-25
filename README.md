@@ -44,15 +44,16 @@ src/core/     PRNG, hash, ruído Perlin, cores
 src/sim/      simulação pura, sem DOM (roda igual no navegador e no Node)
 src/render/   canvas: cenário com atlas de glifos e personagens interpolados
 src/main.ts   UI, câmera e laço de animação
-public/world.json   stargazers (hoje: dados de demonstração)
-tests/        determinismo, identidade e desempenho
+public/world.json   stargazers reais (gerado no deploy por scripts/fetch-stargazers.mjs)
+scripts/      busca de stargazers na API do GitHub
+tests/        determinismo, identidade e desempenho (com fixture de demonstração)
 ```
 
 ## Roadmap
 
 1. ~~Protótipo~~
-2. ~~Repo, núcleo determinístico, CI e deploy no Pages~~ (esta versão)
-3. Stargazers reais: Action lê a API e atualiza `world.json`
+2. ~~Repo, núcleo determinístico, CI e deploy no Pages~~
+3. ~~Stargazers reais: o deploy lê a API a cada star nova (evento `watch`) e a cada 30 min~~ (esta versão)
 4. Checkpoint diário pré-calculado, Web Worker e escala para 1.000 moradores
 5. Polimento e trilha opcional na AWS (S3 + CloudFront, webhook em Lambda, Terraform, OIDC)
 

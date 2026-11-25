@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import world from '../public/world.json';
+import world from './fixtures/world.demo.json';
 import { genesisFor, Simulation } from '../src/sim/simulation';
 import type { WorldFile } from '../src/sim/types';
 
@@ -68,4 +68,22 @@ describe('desempenho', () => {
     run(24 * 7200);
     expect(performance.now() - t0).toBeLessThan(10_000);
   }, 30_000);
+
+  it('stars reais com starredAt: antes de hoje mora, depois chega na hora', () => {
+    const w: WorldFile = { ...W, stargazers: [
+      { login: 'antiga', starredAt: new Date(GENESIS - 3 * 86_400_000).toISOString() },
+      { login: 'hoje', starredAt: new Date(GENESIS + 10 * 3_600_000).toISOString() },
+    ] };
+    const s = new Simulation(w, GENESIS);
+    expect(s.agents.find(a => a.name === 'antiga')!.present).toBe(true);
+    const h = s.agents.find(a => a.name === 'hoje')!;
+    expect(h.present).toBe(false);
+    s.runUntil(h.arriveTick + 5);
+    expect(h.present).toBe(true);
+  });
+
+  it('mundo sem nenhuma star roda sem erro', () => {
+    const s = run(2000, { ...W, stargazers: [] });
+    expect(s.agents.length).toBe(0);
+  });
 });

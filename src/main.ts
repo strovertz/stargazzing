@@ -14,12 +14,11 @@ let sim: Simulation;
 let renderer: Renderer;
 let simMs = 0, ready = false, follow = false;
 let selected: Agent | null = null, hovered: Agent | null = null;
-const localStars: string[] = [];
 
 const tz = () => world.timezoneOffsetHours;
 const fmt = (ms: number) => { const d = new Date(ms + tz() * 3_600_000); return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
 function stateText(a: Agent): string {
-  if (!a.present) return a.meta.local ? 'chegando agora' : `chega às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
+  if (!a.present) return `chega às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
   if (a.state === 'VISIT' && a.friend) return `visitando ${a.friend.name}`;
   return STATE_PT[a.state];
 }
@@ -44,6 +43,12 @@ function renderPlayers(force = false): void {
     listKey = key;
     list.textContent = '';
     rowsUi.clear();
+    if (!sim.agents.length) {
+      const e = document.createElement('p');
+      e.className = 'msg';
+      e.textContent = 'Ninguém deu star ainda. O primeiro morador pode ser você.';
+      list.append(e);
+    }
     for (const a of sim.agents) {
       if (q && !a.name.toLowerCase().includes(q)) continue;
       const b = document.createElement('button');
@@ -87,7 +92,7 @@ function renderCard(): void {
 function updateCard(): void {
   if (!selected || !cardSub) return;
   const a = selected, t = a.tree, sp = SPECIES[a.species]!;
-  const when = a.meta.local ? 'Star simulada aqui' : a.meta.days ? `Star há ${a.meta.days} dia${a.meta.days > 1 ? 's' : ''}` : `Star hoje às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
+  const when = a.meta.days ? `Star há ${a.meta.days} dia${a.meta.days > 1 ? 's' : ''}` : `Star hoje às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
   cardSub[0].textContent = `${when} · ${stateText(a)}`;
   cardSub[1].textContent = t ? `${sp.n}: ${['muda', 'broto', 'arbusto', 'árvore adulta'][stageOf(t)]}${sim.tick - t.lastWater > 3000 ? ', com sede' : ''}` : `${sp.n}, ainda não plantada`;
 }
@@ -115,7 +120,6 @@ function openDrawer(id: string): void {
 function start(): void {
   const now = Date.now();
   sim = new Simulation(world, genesisFor(now, tz()));
-  for (const n of localStars) sim.addLocal(n);
   if (renderer) renderer.setSim(sim);
   else renderer = new Renderer($<HTMLCanvasElement>('bg'), $<HTMLCanvasElement>('fg'), $<HTMLCanvasElement>('mini'), sim);
   const p = sim.terrain.plazas[0]!;
@@ -194,26 +198,15 @@ function bind(): void {
     follow = false;
     renderer.clampCam();
   });
-  $('starForm').addEventListener('submit', e => {
-    e.preventDefault();
-    const input = $<HTMLInputElement>('starName'), v = input.value.trim(), msg = $('msg');
-    if (!/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(v)) { msg.textContent = 'Use um usuário válido do GitHub: letras, números e hífens.'; return; }
-    const ex = sim.agents.find(a => a.name.toLowerCase() === v.toLowerCase());
-    if (ex) { select(ex); msg.textContent = `${ex.name} já mora aqui.`; return; }
-    localStars.push(v);
-    const a = sim.addLocal(v);
-    input.value = '';
-    msg.textContent = `${v} está chegando pela borda do mapa para plantar um ${SPECIES[a.species]!.n}.`;
-    selected = a; follow = true; listKey = ''; renderPlayers(true);
-  });
 }
 
 async function boot(): Promise<void> {
   const res = await fetch(`${import.meta.env.BASE_URL}world.json`, { cache: 'no-cache' });
   world = (await res.json()) as WorldFile;
-  $('dataNote').textContent = world.demo
-    ? `Dados de demonstração: ${world.stargazers.length} stargazers fictícios. Na fase 3 uma Action troca por quem deu star de verdade.`
-    : `${world.stargazers.length} stargazers de ${world.repo}.`;
+  const n = world.stargazers.length;
+  $('dataNote').textContent = `${n} stargazer${n === 1 ? '' : 's'} reais de ${world.repo}` +
+    (world.generatedAt ? `, lidos em ${new Date(world.generatedAt).toLocaleString('pt-BR')}.` : '.') +
+    ' A lista é atualizada a cada star nova e a cada 30 minutos.';
   await document.fonts?.load('16px "JetBrains Mono"').catch(() => undefined);
   start();
   bind();
