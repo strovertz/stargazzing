@@ -261,6 +261,31 @@ export class Simulation {
     a.steps = 30 + Math.floor(a.r() * 70);
   }
 
+  private shore: number[] | null = null;
+
+  private shoreCells(): number[] {
+    if (this.shore) return this.shore;
+    const { T, comp } = this.terrain, out: number[] = [];
+    for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) {
+      const i = y * COLS + x;
+      if (!comp[i] || !this.terrain.passable(i)) continue;   // alcançável e livre
+      const water = (j: number) => T[j]! <= Tile.Shallow;
+      if (water(i - 1) || water(i + 1) || water(i - COLS) || water(i + COLS)) out.push(i);
+    }
+    return (this.shore = out);
+  }
+
+  private fishSpot(a: Agent): Point | null {
+  const s = this.shoreCells();
+  if (!s.length) return null;
+  const near = s
+    .map(i => ({ i, d: Math.abs((i % COLS) - a.home.x) + Math.abs(((i / COLS) | 0) - a.home.y) * 2 }))
+    .sort((p, q) => p.d - q.d || p.i - q.i)
+    .slice(0, 5);
+  const i = near[Math.floor(a.r() * near.length)]!.i;
+  return { x: i % COLS, y: (i / COLS) | 0 };
+  }
+
   private nearestPlaza(a: Agent): Plaza {
     let b = this.terrain.plazas[0]!, bd = 1e9;
     for (const p of this.terrain.plazas) { const d = Math.abs(p.x - a.home.x) + Math.abs(p.y - a.home.y) * 2; if (d < bd) { bd = d; b = p; } }
@@ -277,6 +302,7 @@ export class Simulation {
       ['REST', (1.1 - a.traits.energy) * 0.8 + (night ? 3.2 : 0) + (rain ? 1.4 : 0)],
       ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1)],
       ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : 0.35) * (rain ? 0.2 : 1)],
+      ['FISH', (0.15 ) * (rain ? 0.2 : 1)],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
     let st: State = 'REST';
@@ -285,6 +311,7 @@ export class Simulation {
     a.friend = null;
     if (st === 'WANDER') return this.startWalk(a);
     if (st === 'WATER' || st === 'REST') return this.goTo(a, a.home.x, a.home.y);
+    if (st == 'FISH') {const p = this.fishSpot(a); return p ? this.goTo(a, p.x, p.y) : this.startWalk(a);}
     if (st === 'VISIT') {
       let near = this.agents.filter(b => b !== a && b.present && b.hut && Math.abs(b.home.x - a.home.x) < 60 && Math.abs(b.home.y - a.home.y) < 30);
       if (!near.length) near = this.agents.filter(b => b !== a && b.present && b.hut);
