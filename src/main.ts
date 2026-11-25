@@ -12,7 +12,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 let world: WorldFile;
 let sim: Simulation;
 let renderer: Renderer;
-let simMs = 0, speed = 1, ready = false, follow = false;
+let simMs = 0, ready = false, follow = false;
 let selected: Agent | null = null, hovered: Agent | null = null;
 const localStars: string[] = [];
 
@@ -110,7 +110,6 @@ function openDrawer(id: string): void {
   }
   if (id === 'playersDrawer') { listKey = ''; renderPlayers(true); }
 }
-function setSpeedButtons(): void { document.querySelectorAll<HTMLElement>('[data-speed]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === speed))); }
 
 // ---------- reconstrução do dia ----------
 function start(): void {
@@ -122,7 +121,7 @@ function start(): void {
   const p = sim.terrain.plazas[0]!;
   renderer.cam = { x: p.x, y: p.y + 6 };
   renderer.clampCam();
-  selected = null; listKey = ''; simMs = now; speed = 1; setSpeedButtons();
+  selected = null; listKey = ''; simMs = now;
   ready = false;
   const target = sim.tickAt(simMs), el = $('loading'), bar = $('loadBar'), txt = $('loadTxt'), t0 = performance.now();
   el.hidden = false;
@@ -131,19 +130,18 @@ function start(): void {
     bar.style.width = `${(target ? (sim.tick / target) * 100 : 100).toFixed(1)}%`;
     txt.textContent = `Refazendo o dia desde 00:00 a partir da semente: ${sim.tick.toLocaleString('pt-BR')} de ${target.toLocaleString('pt-BR')} ticks`;
     if (sim.tick < target) { setTimeout(chunk, 0); return; }
-    el.hidden = true; ready = true; lastFrame = performance.now();
+    renderer.warm = true; renderer.drawScene((sim.tick * TICK_MS) / 1000);
+    el.hidden = true; ready = true;
     renderStatus(); renderPlayers(true);
     $('msg').textContent = `Mundo refeito em ${((performance.now() - t0) / 1000).toFixed(1)} s. Star simulada só no seu navegador.`;
   };
   chunk();
 }
 
-let lastFrame = 0, lastScene = 0, lastUi = 0, lastMini = 0;
+let lastScene = 0, lastUi = 0, lastMini = 0;
 function loop(now: number): void {
   if (ready) {
-    const dt = Math.min(now - lastFrame, 1000);
-    lastFrame = now;
-    simMs += dt * speed;
+    simMs = Date.now(); // sempre ao vivo: o mundo segue o relógio real
     sim.runUntil(sim.tickAt(simMs), 5000);
     const tf = (simMs - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;
     if (follow && selected?.present) {
@@ -172,8 +170,6 @@ function bind(): void {
     if (k) { follow = false; renderer.pan(k[0], k[1]); }
   });
   $('search').addEventListener('input', () => renderPlayers(true));
-  document.querySelectorAll<HTMLElement>('[data-speed]').forEach(b => b.addEventListener('click', () => { speed = Number(b.dataset.speed); setSpeedButtons(); }));
-  $('live').addEventListener('click', () => { if (ready) start(); });
   $('zin').addEventListener('click', () => renderer.setZoom(renderer.zi + 1));
   $('zout').addEventListener('click', () => renderer.setZoom(renderer.zi - 1));
   const fg = $<HTMLCanvasElement>('fg');

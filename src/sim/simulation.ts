@@ -287,7 +287,8 @@ export class Simulation {
       return fy < ROWS && this.terrain.passable(fy * COLS + f.home.x) ? this.goTo(a, f.home.x, fy) : this.goTo(a, f.home.x, f.home.y);
     }
     a.plaza = this.nearestPlaza(a);
-    this.goTo(a, a.plaza.x + Math.floor(a.r() * 3) - 1, a.plaza.y);
+    const gx = a.plaza.x + Math.floor(a.r() * 3) - 1, gy = a.plaza.y + 1;
+    this.goTo(a, gx, gy < ROWS && this.terrain.passable(gy * COLS + gx) ? gy : a.plaza.y - 1);
   }
 
   /** Passeio pela regra da Formiga de Langton, preso a um raio em volta de casa. */

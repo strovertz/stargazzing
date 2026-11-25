@@ -18,10 +18,6 @@
     <div class="row" aria-live="polite"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
   </div>
   <div class="tools">
-    <div class="seg glass" role="group" aria-label="Velocidade">
-      <button data-speed="1" aria-pressed="true">1×</button><button data-speed="30" aria-pressed="false">30×</button><button data-speed="300" aria-pressed="false">300×</button>
-    </div>
-    <button class="glass" id="live">Ao vivo</button>
     <div class="seg glass" role="group" aria-label="Zoom"><button id="zout" aria-label="Diminuir zoom">−</button><button id="zin" aria-label="Aumentar zoom">+</button></div>
   </div>
   <div class="mini glass"><canvas id="mini" width="200" height="96" aria-label="Minimapa: clique para ir até o ponto"></canvas></div>
@@ -38,11 +34,12 @@
       <li><b>Máquina de estados.</b> Passear, regar, descansar, visitar vizinhos e ir para a roda nas ruínas, com pesos pelo temperamento, pela hora e pelo clima.</li>
       <li><b>Formiga de Langton.</b> No passeio, cada passo vira à direita ou à esquerda conforme a célula e a inverte. O uso gasta a grama em trilha; trilha esquecida vira flor.</li>
       <li><b>Boids.</b> Na roda das ruínas o grupo se junta com separação, alinhamento e coesão.</li>
-      <li><b>Ruído Perlin.</b> Relevo, lagos, matas, vento na grama, ondas e chuva. A água reflete as árvores da margem.</li>
+      <li><b>Ruído Perlin.</b> Relevo, lagos, matas, vento na grama, ondas e chuva.</li>
+      <li><b>Fogueiras.</b> Ficam nas ruínas e em acampamentos. No fim do dia os moradores fazem roda em volta delas; à noite são a principal fonte de luz.</li>
       <li><b>Relógio determinístico.</b> 1 tick = 0,5 s. Ao abrir, o site refaz o dia desde a meia-noite (o checkpoint) até agora. Todo mundo vê a mesma cena.</li>
     </ol>
     <h3>Por que roda leve</h3>
-    <p>Só a parte visível do mapa é desenhada. Os caracteres saem de um atlas pré-renderizado, o chão é uma imagem de 1 pixel por célula ampliada, o cenário redesenha 10 vezes por segundo e só os personagens a 60 fps, com movimento interpolado entre as células. A busca de caminho reaproveita buffers e para cedo.</p>
+    <p>Tudo é desenhado em mini-grade, com 12 caracteres por célula. O chão é rasterizado em blocos de 16×16 células e só é refeito quando trilhas ou flores mudam; árvores e casas viram imagens cacheadas; a cada quadro só personagens, fogo, vento e luz são desenhados. A busca de caminho reaproveita buffers e para cedo.</p>
     <p id="dataNote"></p>
     <p><a href="https://github.com/strovertz/stargazzing" class="gh">Código no GitHub</a> · dê uma star e vire morador.</p>
   </aside>

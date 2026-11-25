@@ -55,11 +55,20 @@ export class Terrain {
         break;
       }
     });
+    // acampamentos: fogueiras em clareiras de grama, longe das ruínas e umas das outras
+    for (let k = 0; k < 4000 && this.plazas.length < 9; k++) {
+      const x = 8 + Math.floor(r() * (COLS - 16)), y = 6 + Math.floor(r() * (ROWS - 12));
+      let ok = true;
+      for (let yy = y - 2; yy <= y + 2 && ok; yy++) for (let xx = x - 3; xx <= x + 3 && ok; xx++) if (T[yy * COLS + xx] !== Tile.Grass) ok = false;
+      if (!ok || this.plazas.some(p => Math.abs(p.x - x) < 28 && Math.abs(p.y - y) < 14)) continue;
+      this.plazas.push({ x, y, main: false });
+    }
     if (!this.plazas.length) {
       let i = 0;
       while (T[i] !== Tile.Grass) i++;
       this.plazas.push({ x: i % COLS, y: (i / COLS) | 0, main: true });
     }
+    for (const p of this.plazas) this.block[p.y * COLS + p.x] = 1;
     // mata nativa
     for (let y = 4; y < ROWS - 1; y++) for (let x = 3; x < COLS - 3; x++) {
       const i = y * COLS + x;
@@ -72,7 +81,7 @@ export class Terrain {
     }
     // componente conexo a partir da praça principal
     const p0 = this.plazas[0]!;
-    const q = [p0.y * COLS + p0.x];
+    const q = [(p0.y + 1) * COLS + p0.x];
     this.comp[q[0]!] = 1;
     while (q.length) {
       const c = q.pop()!, cx = c % COLS, cy = (c / COLS) | 0;
