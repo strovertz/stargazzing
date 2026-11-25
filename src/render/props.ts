@@ -173,3 +173,30 @@ export function boatSprite(cw: number, ch: number, dpr: number) {
   const pal: Pal = { w: ['#8a5a32', '#4a2e18'], W: ['#6a4426', '#2e1c0e'] };
   return artSprite('barco', rows, pal, (c, i) => (c === 'w' ? (i === 0 ? '\\' : i === 8 ? '/' : '=') : '_'), cw, ch, dpr);
 }
+
+export function millSprite(cw: number, ch: number, dpr: number) {
+  // torre de pedra do moinho (as pás giram por cima, desenhadas a cada quadro)
+  const rows = ['  rrRRR  ', ' rrrRRRR ', 'rrrrRRRRR', ' SsSsSsS ', ' sSsSsSs ', ' SsSwSsS ', ' sSswsSs ', ' SsSsSsS ', ' sSsSsSs ', ' SsSsSsS ', ' sSsddSs ', ' SsSddsS ', ' sSsddSs ', 'mSsSddsSm'];
+  const pal: Pal = { ...STONE, d: ['#3a2818', '#1e140c'], w: ['#ffd27a', '#3a3020'] };
+  return artSprite('moinho', rows, pal, (c, i) => (c === 'r' || c === 'R' ? (i < 4 ? '/' : i > 4 ? '\\' : '^') : c === 'd' ? '#' : c === 'w' ? '+' : c === 'm' ? '"' : i % 2 ? '#' : '='), cw, ch, dpr);
+}
+
+export function towerSprite(cw: number, ch: number, dpr: number) {
+  // torre de vigia de madeira: telhado, plataforma, pernas com travessas em X
+  const rows = ['   rRr   ', '  rrRRr  ', ' rrrRRRr ', ' w     w ', ' wwwwwww ', 'WWWWWWWWW', ' w  X  w ', ' w X X w ', ' wX   Xw ', ' w X X w ', ' w  X  w ', ' w X X w ', ' wX   Xw ', ' w     w ', 'mw     wm'];
+  const pal: Pal = { ...STONE, W: ['#8a5a32', '#4a2e18'], X: ['#6a4426'] };
+  return artSprite('torre', rows, pal, (c, i) => (c === 'r' || c === 'R' ? (i < 4 ? '/' : i > 4 ? '\\' : '^') : c === 'w' ? '|' : c === 'W' ? '=' : c === 'X' ? (i < 4 ? '\\' : '/') : '"'), cw, ch, dpr);
+}
+
+export function menhirSprite(v: number, glow: boolean, cw: number, ch: number, dpr: number) {
+  const tall = 6 + (v % 3);
+  const rows = [' S ', ...Array.from({ length: tall }, (_, j) => (j < tall - 2 ? 'SsS' : 'msm'))];
+  const pal: Pal = { ...STONE, s: [glow ? '#9fd8ff' : '#8c8676', '#4a4840'] };
+  return artSprite(`menir|${v % 3}|${glow}`, rows, pal, (c, i, j) => (c === 'm' ? '"' : c === 's' ? (glow && j % 2 ? '*' : ':') : i === 0 ? '(' : i === 2 ? ')' : '^'), cw, ch, dpr);
+}
+
+export function tentSprite(hue: number, cw: number, ch: number, dpr: number) {
+  const rows = ['  ^^  ', ' /AA\\ ', ' /AaA\\ '.slice(0, 6), '/AaaA\\'.slice(0, 6), '/AddA\\'.slice(0, 6), 'AAddAA', 'gAddAg'];
+  const pal: Pal = { A: [`hsl(${hue} 45% 62%)`, `hsl(${hue} 45% 32%)`], a: [`hsl(${hue} 45% 52%)`, `hsl(${hue} 45% 26%)`], d: ['#1a120c', '#0c0806'], '^': ['#6a4426'], '/': [`hsl(${hue} 45% 70%)`, `hsl(${hue} 45% 36%)`], '\\': [`hsl(${hue} 45% 50%)`, `hsl(${hue} 45% 26%)`], g: ['#5a9a48'] };
+  return artSprite(`barraca|${hue}`, rows, pal, (c) => (c === 'A' || c === 'a' ? '#' : c === 'd' ? ' ' : c === 'g' ? ',' : c), cw, ch, dpr);
+}

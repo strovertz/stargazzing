@@ -10,7 +10,7 @@ import { lightningAt } from './sim/weather';
 import { PROFS } from './sim/constants';
 import { NEEDS, STARS_PER_COLUMN } from './sim/village';
 
-const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago' };
+const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
@@ -25,6 +25,7 @@ function stateText(a: Agent): string {
   if (!a.present) return `chega às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
   if (a.state === 'VISIT' && a.friend) return `visitando ${a.friend.name}`;
   if (a.state === 'CHAT' && a.friend && a.phase === 'stay') return `conversando com ${a.friend.name}`;
+  if (a.state === 'SIGHT' && a.sight) return `${a.phase === 'stay' ? 'no' : 'indo ao'} ${a.sight}`;
   return STATE_PT[a.state];
 }
 function spriteCanvas(a: Agent): HTMLCanvasElement {

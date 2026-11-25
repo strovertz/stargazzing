@@ -1,7 +1,7 @@
 import { makeNoise, type Noise3 } from '../core/noise';
 import { h32, mulberry32 } from '../core/rng';
 import { COLS, DIR4, N, ROWS, RUINS, Tile, WALKABLE } from './constants';
-import type { Column, Plaza, WildTree } from './types';
+import type { Column, Landmark, Plaza, WildTree } from './types';
 
 /** Terreno gerado só a partir da semente: relevo e umidade por Perlin, 3 lagos, ruínas e mata nativa. */
 export class Terrain {
@@ -15,6 +15,8 @@ export class Terrain {
   readonly ruinCh: string[] = new Array<string>(N).fill('');
   plazas: Plaza[] = [];
   wild: WildTree[] = [];
+  /** marcos fora do centro */
+  landmarks: Landmark[] = [];
   /** colunas da ágora central */
   columns: Column[] = [];
   /** centro e raios da ágora */
@@ -69,6 +71,79 @@ export class Terrain {
     this.plazas.push({ x: cx, y: cy, main: true });
   }
 
+  /** Tira árvores nativas de um retângulo (para abrir clareira em volta de uma construção). */
+  clearTrees(x0: number, y0: number, x1: number, y1: number): void {
+    this.wild = this.wild.filter(w => {
+      const inside = w.x >= x0 && w.x <= x1 && w.y >= y0 && w.y <= y1;
+      if (inside) { this.block[w.y * COLS + w.x] = 0; this.comp[w.y * COLS + w.x] = 1; }
+      return !inside;
+    });
+  }
+
+  /** Retângulo w x h (base em y) todo de grama ou mata, sem bloqueio e longe de fogueiras. */
+  private fits(x: number, y: number, w: number, h: number): boolean {
+    if (x < 3 || y - h < 3 || x + w >= COLS - 3 || y >= ROWS - 3) return false;
+    for (let yy = y - h + 1; yy <= y; yy++) for (let xx = x; xx < x + w; xx++) {
+      const t = this.T[yy * COLS + xx];
+      if (t !== Tile.Grass && t !== Tile.Forest) return false;
+    }
+    const a = this.agora;
+    if (((x - a.x) / (a.rx + 8)) ** 2 + ((y - a.y) / (a.ry + 5)) ** 2 < 1) return false;
+    return !this.plazas.some(p => Math.abs(p.x - x) < 9 && Math.abs(p.y - y) < 5) && !this.landmarks.some(l => Math.abs(l.x - x) < 14 && Math.abs(l.y - y) < 7);
+  }
+
+  /** Procura um lugar dentro de uma região (frações do mapa), em ordem sorteada pela semente. */
+  private findSpot(r: () => number, fx0: number, fx1: number, fy0: number, fy1: number, w: number, h: number): [number, number] | null {
+    for (let k = 0; k < 3000; k++) {
+      const x = Math.floor(COLS * (fx0 + r() * (fx1 - fx0))), y = Math.floor(ROWS * (fy0 + r() * (fy1 - fy0)));
+      if (this.fits(x, y, w, h)) return [x, y];
+    }
+    return null;
+  }
+
+  /**
+   * Marcos fora do centro, para o mapa ter o que ver em todo canto: moinho a oeste, torre de vigia
+   * a leste, círculo de pedras ao norte e ao sul, barracas nos acampamentos e uma ponte num lago.
+   */
+  private placeLandmarks(r: () => number): void {
+    const add = (kind: Landmark['kind'], x: number, y: number, w: number, blockW: number) => {
+      this.landmarks.push({ kind, x, y, w, v: Math.floor(r() * 1000) });
+      this.clearTrees(x - 3, y - 6, x + w + 3, y + 2);
+      for (let k = 0; k < blockW; k++) this.block[y * COLS + x + k] = 1;
+    };
+    const mill = this.findSpot(r, 0.05, 0.3, 0.2, 0.8, 3, 3);
+    if (mill) add('moinho', mill[0], mill[1], 3, 3);
+    const tower = this.findSpot(r, 0.7, 0.95, 0.2, 0.8, 3, 3);
+    if (tower) add('torre', tower[0], tower[1], 3, 3);
+    for (const [y0, y1] of [[0.08, 0.3], [0.7, 0.92]] as const) {
+      const st = this.findSpot(r, 0.3, 0.7, y0, y1, 7, 4);
+      if (st) { add('pedras', st[0], st[1], 7, 0); for (const [dx, dy] of [[0, -2], [6, -2], [1, 0], [5, 0], [3, -3]]) this.block[(st[1] + dy!) * COLS + st[0] + dx!] = 1; }
+    }
+    for (const p of this.plazas) {
+      if (p.main) continue;
+      for (const [dx, dy] of [[-5, -1], [4, 1]] as const) {
+        const x = p.x + dx, y = p.y + dy, i = y * COLS + x;
+        if ((this.T[i] === Tile.Grass || this.T[i] === Tile.Forest) && (this.T[i + 1] === Tile.Grass || this.T[i + 1] === Tile.Forest) && !this.block[i] && !this.block[i + 1]) add('barraca', x, y, 2, 2);
+      }
+    }
+    // ponte: travessia horizontal de 3 a 7 células de água entre duas margens, a mais perto do centro
+    let best: [number, number, number] | null = null, bd = Infinity;
+    for (let y = 6; y < ROWS - 6; y++) for (let x = 4; x < COLS - 12; x++) {
+      const i = y * COLS + x;
+      if (!(this.T[i] === Tile.Grass || this.T[i] === Tile.Sand) || this.T[i + 1]! > Tile.Shallow) continue;
+      let n = 1;
+      while (n < 9 && this.T[i + n]! <= Tile.Shallow) n++;
+      if (n < 4 || n > 8 || !(this.T[i + n] === Tile.Grass || this.T[i + n] === Tile.Sand)) continue;
+      const d = Math.abs(x - this.agora.x) + Math.abs(y - this.agora.y) * 2;
+      if (d > 20 && d < bd) { bd = d; best = [x + 1, y, n - 1]; }
+    }
+    if (best) {
+      const [x, y, n] = best;
+      for (let k = 0; k < n; k++) { const i = y * COLS + x + k; this.T[i] = Tile.Floor; this.ruinCh[i] = 'b'; }
+      this.landmarks.push({ kind: 'ponte', x, y, w: n, v: 0 });
+    }
+  }
+
   private generate(): void {
     const { T, H, M, noise, seed } = this;
     const r = mulberry32(seed ^ 0x9e3779b9);
@@ -120,6 +195,7 @@ export class Terrain {
       this.wild.push({ x, y, big: h32(x, y, 9) % 3 > 0, sp: h32(x, y, 4) % 3 });
       this.block[i] = 1;
     }
+    this.placeLandmarks(r);
     // componente conexo a partir da praça principal
     const p0 = this.plazas[0]!;
     const q = [(p0.y + 1) * COLS + p0.x];

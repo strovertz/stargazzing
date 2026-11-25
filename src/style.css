@@ -66,4 +66,4 @@ input{flex:1;font-size:16px;background:rgba(0,0,0,.35);border:1px solid var(--li
 .moon{display:inline-flex;align-items:center;gap:6px}.moon canvas{width:16px;height:16px}
 .works{list-style:none;margin:0;padding:0;display:grid;gap:4px}.works li{display:flex;justify-content:space-between;color:var(--mute);font-size:14px}.works li.done{color:var(--ink)}.works li b{font-weight:600}
 .diary{list-style:none;margin:0;padding:0;display:grid;gap:6px}.diary li{font-size:14px;color:var(--mute);display:flex;gap:10px}.diary time{font:600 12px "JetBrains Mono",monospace;color:var(--gold);flex:none;padding-top:2px}
-.card .bio{color:var(--ink);font-size:14px;margin:6px 0 2px}.card a.gh{font-size:13px}
+.card .bio{grid-column:1/-1;color:var(--ink);font-size:14px;margin:8px 0 2px;line-height:1.45}.card a.gh{grid-column:1/-1;font-size:13px;justify-self:start}

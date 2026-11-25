@@ -31,11 +31,14 @@ function near(t: Terrain, x: number, y: number, w: number): [number, number] | n
 export function planVillage(t: Terrain): Structure[] {
   const a = t.agora, out: Structure[] = [];
   const add = (kind: StructKind, x: number, y: number, cells: number[]) => out.push({ kind, need: NEEDS.find(n => n[0] === kind)![1], x, y, cells, built: false, builtAt: -1 });
+  t.clearTrees(a.x - 12, a.y + Math.ceil(a.ry) + 1, a.x - 2, a.y + Math.ceil(a.ry) + 8);
   const well = near(t, a.x - 6, a.y + Math.ceil(a.ry) + 4, 1);
   if (well) add('poço', well[0], well[1], [well[1] * COLS + well[0]]);
   // lanternas: 8 postes em volta da ágora (não bloqueiam, só iluminam)
   add('lanternas', a.x, a.y, []);
-  const mk = near(t, a.x + Math.ceil(a.rx) + 4, a.y + 1, 3);
+  // mercado numa clareira a sudeste da escadaria, à vista de quem chega
+  t.clearTrees(a.x + 3, a.y + Math.ceil(a.ry) + 1, a.x + 18, a.y + Math.ceil(a.ry) + 9);
+  const mk = near(t, a.x + 7, a.y + Math.ceil(a.ry) + 6, 3);
   if (mk) add('mercado', mk[0], mk[1], [0, 1, 2].map(k => mk[1] * COLS + mk[0] + k));
   // píer: margem caminhável mais perto da ágora, avançando 4 células na água
   let best = -1, bd = Infinity, dir: [number, number] = [0, 1];

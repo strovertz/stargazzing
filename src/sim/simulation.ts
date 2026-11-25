@@ -410,6 +410,7 @@ export class Simulation {
       ['CHOP', prof === 'lenhador' && day ? 0.9 * out : 0],
       ['PLAY', prof === 'músico' && (day || evening) ? 0.8 * out : 0],
       ['GARDEN', prof === 'jardineiro' && day ? 0.9 * (1 - storm) : 0],
+      ['SIGHT', day && this.terrain.landmarks.length ? (0.25 + a.traits.wander * 0.5) * (prof === 'explorador' ? 3 : 1) * out : 0],
       ['BOAT', prof === 'pescador' && day && !rain && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
@@ -452,6 +453,19 @@ export class Simulation {
       a.friend = this.agents.find(b => b.tree === t) ?? null;
       const y = t.y + 1;
       return y < ROWS && this.terrain.passable(y * COLS + t.x) ? this.goTo(a, t.x, y) : this.startWalk(a);
+    }
+    if (st === 'SIGHT') {
+      // marco mais interessante: um dos três mais perto de casa (barracas valem como acampamento)
+      const lms = this.terrain.landmarks.filter(l => l.kind !== 'barraca' || a.r() < 0.3)
+        .map(l => ({ l, d: Math.abs(l.x - a.home.x) + Math.abs(l.y - a.home.y) * 2 })).sort((p, q) => p.d - q.d || p.l.x - q.l.x).slice(0, 3);
+      if (!lms.length) return this.startWalk(a);
+      const l = lms[Math.floor(a.r() * lms.length)]!.l;
+      a.sight = l.kind === 'pedras' ? 'círculo de pedras' : l.kind === 'torre' ? 'torre de vigia' : l.kind;
+      for (const [dx, dy] of [[1, 1], [0, 1], [2, 1], [-1, 0], [l.w, 0], [1, 2]] as const) {
+        const x = l.x + dx, y = l.y + dy;
+        if (y < ROWS && x < COLS && this.terrain.passable(y * COLS + x)) return this.goTo(a, x, y);
+      }
+      return this.startWalk(a);
     }
     if (st === 'BOAT') {
       const pier = this.structures.find(s => s.kind === 'píer')!;
@@ -538,6 +552,11 @@ export class Simulation {
         return;
       }
       if (a.state === 'BOAT') { a.wait = 200 + Math.floor(a.r() * 300); return; }
+      if (a.state === 'SIGHT') {
+        a.wait = 60 + Math.floor(a.r() * 90); a.bubble = a.sight === 'moinho' ? '~' : a.sight === 'torre de vigia' ? '!' : '*'; a.bubbleUntil = tick + 12;
+        if (a.r() < 0.08) this.note(`${a.name} foi até ${a.sight === 'moinho' ? 'o moinho' : a.sight === 'ponte' ? 'a ponte' : a.sight === 'barraca' ? 'o acampamento' : `o ${a.sight === 'torre de vigia' ? 'alto da torre de vigia' : a.sight}`}`, 'encontro');
+        return;
+      }
       a.wait = a.state === 'WATER' ? 14 : a.state === 'REST' ? (night ? Math.floor((120 + a.r() * 300) * 2.5) : 40 + Math.floor(a.r() * 100)) : 40 + Math.floor(a.r() * 60);
       if (a.state === 'WATER') { a.bubble = '¨'; a.bubbleUntil = tick + 14; }
       if (a.state === 'REST' && night) { a.bubble = 'z'; a.bubbleUntil = tick + a.wait; }

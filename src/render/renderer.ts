@@ -5,7 +5,7 @@ import { hourAt, stageOf, type Simulation } from '../sim/simulation';
 import { lightningAt } from '../sim/weather';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
-import { boatSprite, clearPropCache, columnSprite, drawFire, houseSprite, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
+import { boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, houseSprite, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
 import { spritesFor, toolSprite } from './sprites';
 import { drawAnimals, drawCat } from './animals';
 import { clearTreeCache, treeSprite } from './trees';
@@ -242,11 +242,48 @@ export class Renderer {
       ds.push({ y: col.y + 0.03, draw: () => fx.drawImage(spr.canvas, sx(col.x) - spr.w / 2, sy(col.y) - spr.h + ch * 0.15, spr.w, spr.h) });
     }
     for (const { a, spr } of houses) ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(a.home.x - HOUSE_DX) - spr.w / 2, sy(a.home.y) - spr.h + ch * 0.1, spr.w, spr.h) });
+    // marcos espalhados pelo mapa
+    for (const lm of sim.terrain.landmarks) {
+      if (lm.kind === 'ponte' || !inV(lm.x + lm.w / 2, lm.y, 8)) continue;
+      if (lm.kind === 'pedras') {
+        for (const [dx, dy] of [[0, -2], [6, -2], [1, 0], [5, 0], [3, -3]] as const) {
+          const spr = menhirSprite(lm.v + dx, L < 0.5, cs, ch, this.dpr), x = lm.x + dx, y = lm.y + dy;
+          ds.push({ y: y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(x) - spr.w / 2, sy(y) - spr.h + ch * 0.1, spr.w, spr.h) });
+        }
+        continue;
+      }
+      const spr = lm.kind === 'moinho' ? millSprite(cs * 1.6, ch * 1.6, this.dpr) : lm.kind === 'torre' ? towerSprite(cs * 1.5, ch * 1.5, this.dpr) : tentSprite(lm.v % 360, cs * 1.2, ch * 1.2, this.dpr);
+      const cx0 = sx(lm.x + (lm.w - 1) / 2);
+      ds.push({ y: lm.y + 0.02, draw: () => {
+        const top = sy(lm.y) - spr.h + ch * 0.1;
+        fx.drawImage(spr.canvas, cx0 - spr.w / 2, top, spr.w, spr.h);
+        if (lm.kind === 'moinho') {
+          // pás girando com o vento
+          const hx = cx0, hy = top + spr.h * 0.32, R = cs * 5.2, ang = ts * (0.4 + wx.wind * 2.2);
+          fx.strokeStyle = '#6a4426'; fx.lineWidth = Math.max(1.5, 2 * z);
+          for (let k = 0; k < 4; k++) {
+            const a0 = ang + (k * Math.PI) / 2, ex = hx + Math.cos(a0) * R, ey = hy + Math.sin(a0) * R * 0.9;
+            fx.beginPath(); fx.moveTo(hx, hy); fx.lineTo(ex, ey); fx.stroke();
+            const a1 = a0 + 0.22, px2 = hx + Math.cos(a1) * R * 0.95, py2 = hy + Math.sin(a1) * R * 0.85;
+            fx.fillStyle = 'rgba(232,222,196,.85)'; fx.beginPath(); fx.moveTo(hx + Math.cos(a0) * R * 0.3, hy + Math.sin(a0) * R * 0.27); fx.lineTo(ex, ey); fx.lineTo(px2, py2); fx.lineTo(hx + Math.cos(a1) * R * 0.3, hy + Math.sin(a1) * R * 0.27); fx.fill();
+          }
+          fx.fillStyle = '#3a2818'; fx.beginPath(); fx.arc(hx, hy, 2.5 * z, 0, 7); fx.fill();
+        } else if (lm.kind === 'torre') {
+          // bandeira no topo tremulando
+          const fxp = cx0 + 1, fyp = top - ch * 0.9;
+          fx.strokeStyle = '#4a3018'; fx.lineWidth = 1.5; fx.beginPath(); fx.moveTo(fxp, top + ch * 0.2); fx.lineTo(fxp, fyp); fx.stroke();
+          fx.fillStyle = '#c43c3c'; fx.beginPath(); fx.moveTo(fxp, fyp);
+          for (let q = 0; q <= 6; q++) fx.lineTo(fxp + q * 3 * z, fyp + Math.sin(ts * (3 + wx.wind * 5) + q) * 1.5 * z);
+          for (let q = 6; q >= 0; q--) fx.lineTo(fxp + q * 3 * z, fyp + 8 * z + Math.sin(ts * (3 + wx.wind * 5) + q) * 1.5 * z);
+          fx.fill();
+        }
+      } });
+    }
     // obras da vila
     const fair = sim.isFair();
     for (const st of sim.structures) {
       if (!st.built || !inV(st.x, st.y, 5)) continue;
-      const spr = st.kind === 'poço' ? wellSprite(cs, ch, this.dpr) : st.kind === 'mercado' ? marketSprite(fair, cs, ch, this.dpr) : st.kind === 'estátua' ? statueSprite(cs, ch, this.dpr) : null;
+      const spr = st.kind === 'poço' ? wellSprite(cs * 1.2, ch * 1.2, this.dpr) : st.kind === 'mercado' ? marketSprite(fair, cs * 1.3, ch * 1.3, this.dpr) : st.kind === 'estátua' ? statueSprite(cs, ch, this.dpr) : null;
       if (!spr) continue;
       const cx0 = st.kind === 'mercado' ? sx(st.x + 1) : sx(st.x);
       ds.push({ y: st.y + 0.02, draw: () => fx.drawImage(spr.canvas, cx0 - spr.w / 2, sy(st.y) - spr.h + ch * 0.1, spr.w, spr.h) });
@@ -513,6 +550,8 @@ export class Renderer {
     mx.drawImage(this.mini, 0, 0);
     mx.fillStyle = '#ff9a3c';
     for (const p of this.sim.terrain.plazas) mx.fillRect(p.x - 1, p.y - 1, 3, 3);
+    mx.fillStyle = '#e8dec4';
+    for (const l of this.sim.terrain.landmarks) if (l.kind !== 'barraca') mx.fillRect(l.x, l.y - 1, Math.max(2, l.w), 2);
     for (const a of this.sim.agents) { if (!a.present) continue; mx.fillStyle = a === selected ? '#f2c14e' : css(a.col); mx.fillRect(a.x - 1, a.y - 1, 3, 3); }
     const { ox, oy, vw, vh } = this.view();
     mx.strokeStyle = 'rgba(255,255,255,.85)'; mx.lineWidth = 1; mx.strokeRect(ox + 0.5, oy + 0.5, vw, vh);
