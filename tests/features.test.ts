@@ -112,3 +112,21 @@ describe('casas', () => {
     expect(new Set(s.agents.map(a => a.house)).size).toBeGreaterThan(2);
   });
 });
+
+import { boardNews, linesFor, moodOf, questionFor } from '../src/sim/talk';
+import { genesisFor as gf2, Simulation as S2 } from '../src/sim/simulation';
+import demo2 from './fixtures/world.demo.json';
+describe('falas e quadro', () => {
+  it('não mexem no estado e repetem igual', () => {
+    const s = new S2(demo2 as never, gf2(Date.UTC(2026, 10, 24, 15), -3));
+    s.runUntil(40_000);
+    const h = s.stateHash(), a = s.agents.find(x => x.present)!;
+    const l1 = linesFor(s, a), m = moodOf(s, a), q = questionFor(s, a), n = boardNews(s);
+    expect(s.stateHash()).toBe(h);
+    expect(linesFor(s, a)).toEqual(l1);
+    expect(l1.length).toBeGreaterThan(0);
+    for (const v of [m.hunger, m.tired, m.joy]) expect(v >= 0 && v <= 1).toBe(true);
+    expect(q.a).toHaveLength(2);
+    expect(n.forecast.length).toBeGreaterThan(5);
+  });
+});

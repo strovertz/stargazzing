@@ -13,6 +13,9 @@ import { moonPhase, nightTune } from './sim/extras';
 import type { RepoData } from './sim/types';
 import { Timelapse } from './ui/timelapse';
 import { HouseView } from './ui/house';
+import { Dialogue } from './ui/dialogue';
+import { BoardView } from './ui/board';
+import { boardNews, moodOf } from './sim/talk';
 import { fnv } from './core/rng';
 import { encode, restore } from './sim/snapshot';
 import { loadSnap, saveSnap } from './core/store';
@@ -110,10 +113,13 @@ function renderCard(): void {
   };
   share.append(mk('Copiar link', `${page}?u=${encodeURIComponent(a.name)}`), mk('Cartão p/ README', `[![${a.name} em Stargazzing](${page}cards/${encodeURIComponent(a.name.toLowerCase())}.svg)](${page}?u=${encodeURIComponent(a.name)})`));
   box.append(spriteCanvas(a), h4, s1, s2, bioEl, rel, share, link);
-  for (const [k, v] of [['Energia', a.traits.energy], ['Sociável', a.traits.social], ['Jardineiro', a.traits.gardener], ['Explorador', a.traits.wander]] as const) {
+  const md = moodOf(sim, a);
+  moodBars = [];
+  for (const [k, v] of [['Fome', md.hunger], ['Cansaço', md.tired], ['Alegria', md.joy], ['Energia', a.traits.energy], ['Sociável', a.traits.social], ['Jardineiro', a.traits.gardener], ['Explorador', a.traits.wander]] as const) {
     const row = document.createElement('div'), l = document.createElement('span'), m = document.createElement('span'), i = document.createElement('i');
     row.className = 'trait'; m.className = 'm'; l.textContent = k; i.style.width = `${(v * 100).toFixed(0)}%`;
     m.append(i); row.append(l, m); box.append(row);
+    if (k === 'Fome' || k === 'Cansaço' || k === 'Alegria') { row.classList.add('mood'); moodBars.push(i); }
   }
   c.append(box);
   updateCard();
@@ -129,8 +135,10 @@ function relations(a: Agent): string {
   ].filter(Boolean);
   return bits.length ? `${bits.join(' · ')}.` : 'Ainda sem amizades marcantes.';
 }
+let moodBars: HTMLElement[] = [];
 function updateCard(): void {
   if (!selected || !cardSub) return;
+  { const md = moodOf(sim, selected); [md.hunger, md.tired, md.joy].forEach((v, k) => { if (moodBars[k]) moodBars[k]!.style.width = `${(v * 100).toFixed(0)}%`; }); }
   const a = selected, t = a.tree, sp = SPECIES[a.species]!;
   const when = a.meta.days ? `Star há ${a.meta.days} dia${a.meta.days > 1 ? 's' : ''}` : `Star hoje às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
   cardSub[0].textContent = `${when} · ${stateText(a)}`;
@@ -354,7 +362,7 @@ function loop(now: number): void {
     renderer.drawActors(tf, selected, hovered);
     tuneQuality(performance.now() - t0, now);
     if (now - lastMini > 500) { renderer.drawMini(selected); lastMini = now; }
-    if (now - lastUi > 1000) { renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
+    if (now - lastUi > 1000) { renderer.boardPapers = boardNews(sim).count; renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
     if (amb.on && now - lastSound > 200) { updateSound(ts); lastSound = now; }
   }
   requestAnimationFrame(loop);
@@ -362,6 +370,8 @@ function loop(now: number): void {
 
 const timelapse = new Timelapse($('timelapse'));
 const houseView = new HouseView($('houseView'));
+const dialogue = new Dialogue($('dialogue'));
+const board = new BoardView($('board'));
 
 /** Modo foto: redesenha sem nomes nem balões, junta chão e atores e baixa um PNG com legenda. */
 function photo(): void {
@@ -402,12 +412,25 @@ function bind(): void {
   const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
   let kq: string[] = [];
   addEventListener('keydown', e => {
-    if (e.key === 'Escape') { openDrawer(''); timelapse.stop(); houseView.close(); }
+    if (e.key === 'Escape') { openDrawer(''); timelapse.stop(); houseView.close(); dialogue.close(); board.close(); }
+    if (dialogue.open && (e.key === ' ' || e.key === 'Enter') && (e.target as HTMLElement).tagName !== 'BUTTON') { e.preventDefault(); dialogue.advance(); return; }
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
     const ts = Date.now() / 1000 - sim.genesis / 1000;
     kq = [...kq, e.key.length === 1 ? e.key.toLowerCase() : e.key].slice(-KONAMI.length);
     if (kq.join() === KONAMI.join()) { renderer.starRain(ts); kq = []; $('msg').textContent = 'Chuva de estrelas! ★'; }
-    if (e.key === 'l' || e.key === 'L') renderer.releaseLantern(ts);
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key === 'l') renderer.releaseLantern(ts);
+    // atalhos de teclado (a lista aparece em "Como funciona")
+    if (key === 'q') board.show(sim);
+    if (key === 'p') openDrawer('playersDrawer');
+    if (key === 'd') { diaryKey = ''; openDrawer('diaryDrawer'); renderDiary(); }
+    if (key === 'c') openDrawer('howDrawer');
+    if (key === 't') timelapse.play(sim, renderer);
+    if (key === 'f') photo();
+    if (key === 'm') $('sound').click();
+    if (key === '+' || key === '=') renderer.setZoom(renderer.zi + 1);
+    if (key === '-' || key === '_') renderer.setZoom(renderer.zi - 1);
     const k = ({ ArrowLeft: [-4, 0], ArrowRight: [4, 0], ArrowUp: [0, -3], ArrowDown: [0, 3] } as Record<string, [number, number]>)[e.key];
     if (k) { follow = false; renderer.pan(k[0], k[1]); }
   });
@@ -451,6 +474,8 @@ function bind(): void {
   fg.addEventListener('pointerup', e => {
     if (drag && !drag.moved) {
       const a = renderer.agentAt(e.offsetX, e.offsetY), h = a ? null : renderer.houseAt(e.offsetX, e.offsetY);
+      if (!a && !h && renderer.boardAt(e.offsetX, e.offsetY)) { board.show(sim); drag = null; return; }
+      if (a?.present && !a.inside) dialogue.show(sim, a); else if (!a) dialogue.close();
       if (h) {
         const atHome = h.present && Math.abs(h.x - h.home.x) <= 1 && Math.abs(h.y - h.home.y) <= 1 && h.phase === 'stay';
         const hr = hourAt(sim.tick);

@@ -53,6 +53,10 @@ export class Renderer {
   /** posição na tela de cada morador visível no último quadro */
   readonly screen = new Map<Agent, { x: number; y: number }>();
   /** retângulo de cada casa visível (para abrir a planta ao clicar) */
+  /** papéis pregados no quadro (notícias do dia) e onde ele ficou na tela */
+  boardPapers = 0;
+  private boardRect: { x: number; y: number; w: number; h: number } | null = null;
+  boardAt(px: number, py: number): boolean { const r = this.boardRect; return !!r && px >= r.x - 6 && px <= r.x + r.w + 6 && py >= r.y - 6 && py <= r.y + r.h + 6; }
   private houseRects: { a: Agent; x: number; y: number; w: number; h: number }[] = [];
   houseAt(px: number, py: number): Agent | null { for (let k = this.houseRects.length - 1; k >= 0; k--) { const r = this.houseRects[k]!; if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r.a; } return null; }
   /** efeitos de brincadeira: chuva de estrelas (código Konami) e lanternas de papel soltas no céu (tecla L) */
@@ -333,6 +337,7 @@ export class Renderer {
       } });
     }
     // marcos espalhados pelo mapa
+    this.boardRect = null;
     for (const lm of sim.terrain.landmarks) {
       if (lm.kind === 'ponte' || lm.kind === 'pântano' || lm.kind === 'cogumelos' || lm.kind === 'pomar' || lm.kind === 'pedreira' || lm.kind === 'praia' || lm.kind === 'cercado' || lm.kind === 'floresta' || !inV(lm.x + lm.w / 2, lm.y, 8)) continue;
       if (lm.kind === 'pedras') {
@@ -343,9 +348,10 @@ export class Renderer {
         continue;
       }
       if (lm.kind === 'caverna' || lm.kind === 'templo' || lm.kind === 'quadro') {
-        const open = sim.requests.filter(q => q.state === 'open').length;
+        const open = this.boardPapers;
         const spr = lm.kind === 'caverna' ? caveSprite(cs * 1.3, ch * 1.3, this.dpr) : lm.kind === 'templo' ? templeSprite(sim.templeOpen, sim.crystalLit, cs, ch, this.dpr) : boardSprite(open, cs * 1.4, ch * 1.4, this.dpr);
         const cx0 = sx(lm.x + (lm.w - 1) / 2), y = lm.kind === 'caverna' ? lm.y + 0.6 : lm.y;
+        if (lm.kind === 'quadro') this.boardRect = { x: cx0 - spr.w / 2, y: sy(y) - spr.h + ch * 0.1, w: spr.w, h: spr.h };
         ds.push({ y: lm.y + 0.02, draw: () => fx.drawImage(spr.canvas, cx0 - spr.w / 2, sy(y) - spr.h + ch * 0.1, spr.w, spr.h) });
         continue;
       }
