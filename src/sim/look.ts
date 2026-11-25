@@ -1,6 +1,6 @@
 import { css, hex, hsl, mix } from '../core/color';
 import { fnv, mulberry32, type Rng } from '../core/rng';
-import { HAIR, HATS, PANTS, SKIN } from './constants';
+import { BASE_PROFS, HAIR, HATS, PANTS, SKIN } from './constants';
 import type { Look } from './types';
 
 /**
@@ -29,4 +29,10 @@ export function age(look: Look, name: string, days: number): Look {
 export function lookFor(name: string, days = 0): { hue: number; look: Look } {
   const { hue, look } = lookFrom(mulberry32(fnv(name.toLowerCase())));
   return { hue, look: age(look, name, days) };
+}
+
+/** Profissão pelo login: 1 em cada 3 vira agricultor, padeiro ou carteiro; o resto segue o sorteio antigo. */
+export function profOf(name: string): number {
+  const k = name.toLowerCase(), extra = fnv(k + '#prof2') % 9;
+  return extra < 3 ? BASE_PROFS + extra : fnv(k + '#prof') % BASE_PROFS;
 }

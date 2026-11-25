@@ -1,5 +1,6 @@
 import { fnv, h32 } from '../core/rng';
-import { DAY_MS, INSTRUMENTS, TICKS_PER_HOUR } from './constants';
+import { DAY_MS, INSTRUMENTS, TICK_MS, TICKS_PER_HOUR } from './constants';
+import { pricesFor } from './farm';
 import { NEEDS } from './village';
 import { hourAt, isNight, type Simulation } from './simulation';
 import { weatherAt, type WeatherKind } from './weather';
@@ -112,7 +113,7 @@ export function questionFor(sim: Simulation, a: Agent): { id: number; q: string;
 }
 
 /** Notícias do quadro de anúncios. */
-export interface BoardNews { arrivals: string[]; works: { done: string[]; next: string | null }; fisher: string | null; friends: string[]; forecast: string; requests: { n: number; title: string }[]; count: number }
+export interface BoardNews { prices: { item: string; price: number; trend: -1 | 0 | 1 }[]; wheat: string; arrivals: string[]; works: { done: string[]; next: string | null }; fisher: string | null; friends: string[]; forecast: string; requests: { n: number; title: string }[]; count: number }
 export function boardNews(sim: Simulation): BoardNews {
   const arrivals = sim.agents.filter(a => !a.meta.days && a.present).map(a => a.name);
   const done = NEEDS.filter(([, n]) => sim.stars >= n).map(([k]) => k), nx = NEEDS.find(([, n]) => sim.stars < n);
@@ -122,7 +123,10 @@ export function boardNews(sim: Simulation): BoardNews {
   const fisher = [...catches].sort((p, q) => q[1] - p[1] || (p[0] < q[0] ? -1 : 1))[0];
   const friends = sim.log.filter(e => e.kind === 'amizade' && /viraram amigos|pazes|vizinhos|casal/.test(e.text)).slice(-4).map(e => e.text);
   const requests = sim.requests.filter(q => q.state === 'open').slice(0, 5).map(q => ({ n: q.n, title: q.title }));
+  const ms = sim.genesis + sim.tick * TICK_MS, fresh = ms - sim.wheat.lastHarvest < DAY_MS;
+  const wheat = `${['Terra arada', 'Brotando', 'Trigo verde', 'Trigo dourado, quase na colheita'][sim.wheat.stage]}. Próxima colheita: ${new Date(sim.wheat.nextHarvest).toLocaleDateString('pt-BR', { weekday: 'long' })}. Celeiro: ${sim.wheatStock} sacas.`;
   return {
+    prices: pricesFor(Math.floor(sim.genesis / DAY_MS), sim.terrain.seed, fresh), wheat,
     arrivals, works: { done, next: nx ? `${nx[0]} (faltam ${nx[1] - sim.stars})` : null },
     fisher: fisher ? `${fisher[0]} (${fisher[1]} peixe${fisher[1] > 1 ? 's' : ''})` : null,
     friends, forecast: forecast(sim), requests, count: arrivals.length + friends.length + requests.length,

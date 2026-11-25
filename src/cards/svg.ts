@@ -1,6 +1,6 @@
 import { fnv, mulberry32 } from '../core/rng';
 import { DAY_MS, PROFS, SPECIES } from '../sim/constants';
-import { lookFor, lookFrom } from '../sim/look';
+import { lookFor, lookFrom, profOf } from '../sim/look';
 import { palette, spriteRows } from '../render/pixels';
 import type { StargazerEntry } from '../sim/types';
 
@@ -33,7 +33,7 @@ export function daysOf(e: StargazerEntry, now: number): number {
 
 export function residentCard(e: StargazerEntry, now: number, site: string): string {
   const name = e.login, days = daysOf(e, now), key = name.toLowerCase();
-  const prof = PROFS[fnv(key + '#prof') % PROFS.length]!, owl = fnv(key + '#owl') % 4 === 0;
+  const prof = PROFS[profOf(key)]!, owl = fnv(key + '#owl') % 4 === 0;
   // a espécie é o 8º sorteio do PRNG do morador, logo depois da aparência (igual à simulação)
   const r = mulberry32(fnv(key)), { hue } = lookFrom(r), sp = SPECIES[Math.floor(r() * SPECIES.length)]!;
   const since = days === 0 ? 'chegou hoje' : `morador há ${days} dia${days > 1 ? 's' : ''}`;

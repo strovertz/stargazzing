@@ -2,7 +2,8 @@ import { hsl } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
 import { INSTRUMENTS, PET_NAMES, PETS, PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile, WALKABLE } from './constants';
 import { affinity, commitBias, COUPLE_AT, ecosystem, FRIEND_AT, isFullMoon, merchantFor, RIVAL_AT } from './extras';
-import { age, lookFrom } from './look';
+import { age, lookFrom, profOf } from './look';
+import { CROPS, cropOf, growth, WHEAT_EPOCH, WHEAT_TARGET, type Growth } from './farm';
 import { Terrain } from './world';
 import { weatherAt, type Weather } from './weather';
 import { lanternSpots, planVillage, STARS_PER_COLUMN, type Structure } from './village';
@@ -94,6 +95,18 @@ export class Simulation {
   private readonly prev = new Int32Array(N);
   private readonly seen = new Uint32Array(N);
   private stamp = 0;
+  private soldToday = false;
+  private bakedToday = false;
+  /** campo de trigo da vila (ao lado do mercado) e o estado dele agora */
+  field: { x: number; y: number; w: number; h: number } | null = null;
+  wheat!: Growth;
+  private wheatSeen = 0;
+  /** sacas de trigo no celeiro: a colheita enche, o padeiro gasta */
+  wheatStock = 0;
+  /** próxima colheita de cada horta (ms) */
+  private nextCrop = new Map<Agent, number>();
+  /** cartas entregues hoje pelo carteiro */
+  readonly letters: { tick: number; from: string; to: string }[] = [];
 
   constructor(readonly world: WorldFile, readonly genesis: number) {
     this.terrain = new Terrain(fnv(world.seed));
@@ -144,11 +157,71 @@ export class Simulation {
       }
     }
     for (const a of this.agents) this.relate(a);
+    this.placeField();
+    const nowMs = genesis;
+    this.wheat = growth(this.terrain.noise, this.terrain.seed, WHEAT_EPOCH, nowMs, WHEAT_TARGET);
+    this.wheatSeen = this.wheat.harvests;
+    this.wheatStock = nowMs - this.wheat.lastHarvest < 3 * DAY_MS ? 12 : 4;
     this.planMerchant();
     // votação mais recente do conselho (quarta, 19h30) vale até a próxima
     this.applyVote(this.weekOf(0), false);
     this.updateVillage(false);
     this.startNotes();
+  }
+
+  /** Campo de trigo 12x5 perto do mercado (ou da ágora), em grama livre longe das casas. */
+  private placeField(): void {
+    const { T, comp, block } = this.terrain, mk = this.structures.find(s => s.kind === 'mercado'), ag = this.terrain.agora;
+    const cx = mk ? mk.x + 4 : ag.x + ag.rx + 4, cy = mk ? mk.y + 3 : ag.y + ag.ry + 2, W = 12, H = 5;
+    const ok = (x0: number, y0: number) => {
+      if (x0 < 3 || y0 < 3 || x0 + W >= COLS - 3 || y0 + H >= ROWS - 2) return false;
+      for (let y = y0; y < y0 + H; y++) for (let x = x0; x < x0 + W; x++) {
+        const i = y * COLS + x;
+        if (!(T[i] === Tile.Grass || T[i] === Tile.Forest) || !comp[i] || block[i]) return false;
+      }
+      return !this.agents.some(a => a.home.x > x0 - 6 && a.home.x < x0 + W + 4 && a.home.y > y0 - 3 && a.home.y < y0 + H + 3)
+        && !this.structures.some(s => s.x > x0 - 3 && s.x < x0 + W + 2 && s.y > y0 - 2 && s.y < y0 + H + 2);
+    };
+    for (let r = 0; r < 40; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || !ok(cx + dx, cy + dy)) continue;
+      this.field = { x: cx + dx, y: cy + dy, w: W, h: H };
+      this.terrain.clearTrees(cx + dx - 1, cy + dy - 1, cx + dx + W + 1, cy + dy + H + 4);
+      this.terrain.version++;
+      return;
+    }
+  }
+
+  /** Horta do morador: cultura pelo login e estágio de agora (recalculado a cada 2 horas). */
+  private cropCache = new Map<Agent, { slot: number; stage: number }>();
+  gardenOf(a: Agent, atMs = this.genesis + this.tick * TICK_MS): { crop: number; stage: number } {
+    const crop = cropOf(a.name), slot = Math.floor(atMs / 7_200_000), c = this.cropCache.get(a);
+    if (c && c.slot === slot) return { crop, stage: c.stage };
+    const stage = growth(this.terrain.noise, this.terrain.seed, this.plantedAt(a), atMs, CROPS[crop]!.target).stage;
+    this.cropCache.set(a, { slot, stage });
+    return { crop, stage };
+  }
+  private plantedAt(a: Agent): number { return a.meta.starredAt ?? this.genesis - (a.meta.days ?? 0) * DAY_MS; }
+
+  /** A cada 2 horas: trigo e hortas crescem pela chuva; quem colhe guarda e às vezes conta no diário. */
+  private farmPass(): void {
+    const ms = this.genesis + this.tick * TICK_MS, { noise, seed } = this.terrain;
+    this.wheat = growth(noise, seed, WHEAT_EPOCH, ms, WHEAT_TARGET);
+    if (this.wheat.harvests > this.wheatSeen) {
+      this.wheatSeen = this.wheat.harvests;
+      this.wheatStock += 12;
+      const f = this.agents.find(a => a.present && PROFS[a.prof] === 'agricultor');
+      this.note(f ? `Colheita do trigo! ${f.name} encheu o celeiro com 12 sacas` : 'O trigo do campo amadureceu e foi colhido', 'trabalho');
+    }
+    for (const a of this.agents) {
+      if (!a.present) continue;
+      let next = this.nextCrop.get(a);
+      if (next === undefined) { next = growth(noise, seed, this.plantedAt(a), ms, CROPS[cropOf(a.name)]!.target).nextHarvest; this.nextCrop.set(a, next); }
+      if (ms < next) continue;
+      const crop = CROPS[cropOf(a.name)]!;
+      if (a.items.length < 8) a.items.push(crop.item);
+      if (h32(fnv(a.name), this.tick, 5) % 3 === 0) this.note(`${a.name} colheu ${crop.item} da horta`, 'trabalho');
+      this.nextCrop.set(a, growth(noise, seed, this.plantedAt(a), ms + 1, crop.target).nextHarvest);
+    }
   }
 
   /** Amigos e rivais pela afinidade dos nomes (a relação vale para os dois lados). */
@@ -360,6 +433,7 @@ export class Simulation {
       this.act(a);
     }
     if (this.tick % 240 === 0) this.seasonPass();
+    if (this.tick % 14_400 === 7_200) this.farmPass();
     this.skyAndEvents();
     if (this.fire && this.tick - this.fire.start > 900) this.putOut(true);
   }
@@ -416,6 +490,8 @@ export class Simulation {
   }
 
   /** Feira: sábado e domingo das 9h às 17h. Corrida de vaga-lumes: sexta das 20h às 21h. */
+  /** Dia de banca do agricultor: feira, ou um dia em cada três pelo calendário. */
+  isMarketDay(): boolean { return this.weekday === 0 || this.weekday === 6 || h32(Math.floor(this.genesis / DAY_MS), 31, this.terrain.seed) % 3 === 0; }
   isFair(t = this.tick): boolean { const h = hourAt(t); return (this.weekday === 0 || this.weekday === 6) && h >= 9 && h < 17; }
   isFireflyRace(t = this.tick): boolean { const h = hourAt(t); return this.weekday === 5 && h >= 20 && h < 21; }
 
@@ -442,7 +518,7 @@ export class Simulation {
       home: { x: 0, y: 0 }, chatAt: -9999, friends: [], rivals: [], partner: null, inside: false, crystals: 0, items: [], house: 0,
       instrument: fnv(name.toLowerCase() + '#inst') % INSTRUMENTS.length,
       pet: fnv(name.toLowerCase() + '#pet') % 3 === 0 ? { kind: fnv(name.toLowerCase() + '#petk') % PETS.length, name: PET_NAMES[fnv(name.toLowerCase() + '#petn') % PET_NAMES.length]! } : null,
-      prof: fnv(name.toLowerCase() + '#prof') % PROFS.length, owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
+      prof: profOf(name), owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
     };
     a.home = this.pickHome(a, mate?.home);
     a.house = this.houseType(a);
@@ -659,6 +735,10 @@ export class Simulation {
       ['PLAY', prof === 'músico' && (day || evening) ? 0.8 * out : 0],
       ['GARDEN', (prof === 'jardineiro' ? 0.9 : this.thirstyNear(a) ? 0.35 : 0) * (day ? 1 : 0) * (1 - storm)],
       ['SIGHT', day && this.terrain.landmarks.length ? (0.25 + a.traits.wander * 0.5) * (prof === 'explorador' ? 3 : 1) * out : 0],
+      ['FARM', prof === 'agricultor' && day && this.field ? 1.4 * out : 0],
+      ['SELL', prof === 'agricultor' && this.isMarketDay() && h >= 9 && h < 12.5 && this.structures.some(s => s.kind === 'mercado' && s.built) ? 4 * (1 - storm) : 0],
+      ['BAKE', prof === 'padeiro' && h >= 4.5 && h < 9 && this.wheatStock > 0 ? 5 : 0],
+      ['MAIL', prof === 'carteiro' && day ? 1.6 * out : 0],
       ['BOAT', prof === 'pescador' && day && !rain && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
@@ -736,6 +816,21 @@ export class Simulation {
         if (y < ROWS && x < COLS && this.terrain.passable(y * COLS + x)) return this.goTo(a, x, y);
       }
       return this.startWalk(a);
+    }
+    if (st === 'FARM') {
+      const f = this.field!, x = f.x + Math.floor(a.r() * f.w), y = f.y + Math.floor(a.r() * f.h);
+      return this.terrain.passable(y * COLS + x) ? this.goTo(a, x, y) : this.startWalk(a);
+    }
+    if (st === 'SELL') { const mk = this.structures.find(s => s.kind === 'mercado')!; return this.goTo(a, mk.x + 1, mk.y + 1); }
+    if (st === 'BAKE') return this.goTo(a, a.home.x, a.home.y);
+    if (st === 'MAIL') {
+      // carta de um amigo para outro: o carteiro leva até a porta
+      const to = this.agents.filter(b => b.present && b.hut && b !== a && b.friends.some(c => c.present));
+      if (!to.length) return this.startWalk(a);
+      const b = to[Math.floor(a.r() * to.length)]!;
+      a.friend = b;
+      const fy = b.home.y + 1;
+      return fy < ROWS && this.terrain.passable(fy * COLS + b.home.x) ? this.goTo(a, b.home.x, fy) : this.goTo(a, b.home.x, b.home.y);
     }
     if (st === 'BOAT') {
       const pier = this.structures.find(s => s.kind === 'píer')!;
@@ -819,6 +914,35 @@ export class Simulation {
         const fi = a.y * COLS + a.x + (a.r() < 0.5 ? -1 : 1);
         if (this.terrain.T[fi] === Tile.Grass && !this.flower[fi]) { this.flower[fi] = 1 + Math.floor(a.r() * FLOWERS.length); this.groundVersion++; }
         if (a.friend && (t && this.tick - t.lastWater > 1000 ? a.r() < 0.5 : a.r() < 0.04)) this.note(`${a.name} regou a árvore${t && this.tick - t.lastWater > 1000 ? ' com sede' : ''} de ${a.friend.name}`, 'trabalho');
+        return;
+      }
+      if (a.state === 'FARM') {
+        const stg = this.wheat.stage;
+        a.wait = 70 + Math.floor(a.r() * 90); a.bubble = stg === 3 ? 'v' : stg === 0 ? '~' : '¨'; a.bubbleUntil = tick + 14;
+        return;
+      }
+      if (a.state === 'SELL') {
+        a.wait = 160 + Math.floor(a.r() * 120); a.bubble = '$'; a.bubbleUntil = tick + 20;
+        if (!this.soldToday) { this.soldToday = true; this.note(`${a.name} montou a banca de trigo no mercado`, 'evento'); }
+        return;
+      }
+      if (a.state === 'BAKE') {
+        a.wait = 90 + Math.floor(a.r() * 60); a.bubble = 'pão'; a.bubbleUntil = tick + 30;
+        if (this.wheatStock > 0) { this.wheatStock--; for (let k = 0; k < 3 && a.items.length < 8; k++) a.items.push('um pão'); }
+        if (!this.bakedToday) { this.bakedToday = true; this.note(`Cheiro de pão quente: ${a.name} acendeu o forno`, 'trabalho'); }
+        return;
+      }
+      if (a.state === 'MAIL') {
+        a.wait = 16; a.bubble = '✉'; a.bubbleUntil = tick + 16;
+        const b = a.friend;
+        if (b) {
+          const pals = b.friends.filter(c => c.present && c !== a);
+          if (pals.length) {
+            const from = pals[Math.floor(a.r() * pals.length)]!;
+            this.letters.push({ tick, from: from.name, to: b.name });
+            if (a.r() < 0.12) this.note(`${a.name} entregou uma carta de ${from.name} para ${b.name}`, 'encontro');
+          }
+        }
         return;
       }
       if (a.state === 'BOAT') { a.wait = 200 + Math.floor(a.r() * 300); return; }

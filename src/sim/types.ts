@@ -4,7 +4,7 @@ import type { Hat } from './constants';
 
 export interface LogEntry { tick: number; text: string; kind: 'chegada' | 'clima' | 'obra' | 'pesca' | 'evento' | 'céu' | 'encontro' | 'trabalho' | 'lenda' | 'amizade' | 'github' }
 
-export type State = 'GAME' | 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT' | 'MINE' | 'BUCKET' | 'TASK';
+export type State = 'FARM' | 'SELL' | 'BAKE' | 'MAIL' | 'GAME' | 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT' | 'MINE' | 'BUCKET' | 'TASK';
 export type Phase = 'go' | 'stay' | 'walk' | 'boid';
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string; beard?: boolean }

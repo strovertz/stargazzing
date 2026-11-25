@@ -11,6 +11,7 @@ import { drawAnimals, drawCat, drawDeer, drawPets } from './animals';
 import { lookFor } from '../sim/look';
 import { clearTreeCache, treeSprite } from './trees';
 import { glow } from './glow';
+import { CROPS } from '../sim/farm';
 
 export const CW = 10;
 export const CH = 18;
@@ -314,25 +315,51 @@ export class Renderer {
       const hx = sx(a.home.x - HOUSE_DX) - spr.w / 2, hy = sy(a.home.y) - spr.h + ch * 0.1, days = a.meta.days ?? 0;
       this.houseRects.push({ a, x: hx, y: hy, w: spr.w, h: spr.h });
       ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, hx, hy, spr.w, spr.h) });
-      // a casa cresce com os dias: cerca (3 dias), horta (7) e varal (14)
+      // horta de cada morador: 2 canteiros do lado da casa, com a cultura e o estágio de agora
+      if (z >= 0.65) {
+        const gd = sim.gardenOf(a), crop = CROPS[gd.crop]!, gx = hx - cs * 1.5, gy = sy(a.home.y) - ch * 0.35;
+        ds.push({ y: a.home.y + 0.01, draw: () => {
+          fx.font = `700 ${Math.round(ch * 0.66)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+          fx.fillStyle = '#4a3420'; fx.fillRect(gx - cs * 1.05, gy - ch * 0.34, cs * 2.1, ch * 0.7);
+          fx.fillStyle = '#6a4a2c'; for (let k = 0; k < 3; k++) fx.fillRect(gx - cs * 1.0 + k * cs * 0.7, gy + ch * 0.18, cs * 0.55, ch * 0.07);
+          for (let k = 0; k < 3; k++) {
+            const px = gx - cs * 0.7 + k * cs * 0.7, sw2 = Math.sin(ts * (1 + wx.wind * 2) + k + a.hue) * cs * 0.04;
+            if (gd.stage === 0) { fx.fillStyle = '#7a5a38'; fx.fillText('.', px, gy); continue; }
+            fx.fillStyle = '#6fbf5a';
+            fx.fillText(gd.stage === 1 ? ',' : crop.n === 'girassol' ? '|' : 'v', px + sw2, gy - (gd.stage >= 2 ? ch * 0.08 : 0));
+            if (gd.stage === 3) { fx.fillStyle = crop.col; fx.fillText(crop.n === 'girassol' ? '✿' : crop.n === 'alface' ? '@' : crop.n === 'abóbora' ? 'O' : crop.n === 'tomate' ? 'ó' : 'V', px + sw2, gy - ch * (crop.n === 'girassol' ? 0.32 : 0.02)); }
+          }
+          if (a.state === 'WATER' && a.phase === 'stay') { fx.fillStyle = '#8ac8f0'; fx.fillText('¨', gx + Math.sin(ts * 8) * cs * 0.3, gy - ch * 0.5); }
+        } });
+      }
+      // a casa cresce com os dias: cerca (3 dias) e varal (14)
       if (z < 0.65 || days < 3) continue;
       ds.push({ y: a.home.y + 0.5, draw: () => {
         fx.font = `700 ${Math.round(ch * 0.42)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
         const fy = sy(a.home.y) + ch * 0.35, x0 = hx - cs * 1.4;
         fx.fillStyle = '#8a6a44';
         for (let k = 0; k <= 9; k++) fx.fillText(k % 3 ? '-' : '+', x0 + k * cs * 0.5, fy);
-        if (days >= 7) {
-          // horta: canteiro com brotos e uma abóbora
-          const gx = hx - cs * 1.5, gy = sy(a.home.y) - ch * 0.35;
-          fx.fillStyle = '#4a3420'; fx.fillRect(gx - cs * 0.6, gy - ch * 0.25, cs * 1.3, ch * 0.5);
-          fx.fillStyle = '#6fbf5a'; for (let k = 0; k < 3; k++) fx.fillText(k === 1 ? 'Y' : 'v', gx - cs * 0.35 + k * cs * 0.35, gy);
-          fx.fillStyle = '#e8862a'; fx.fillText('o', gx + cs * 0.45, gy + ch * 0.05);
-        }
         if (days >= 14) {
           // varal com roupas na cor do dono, balançando com o vento
           const vx0 = hx - cs * 1.9, vx1 = hx - cs * 0.2, vy = hy + spr.h * 0.45;
           fx.strokeStyle = '#6a4426'; fx.lineWidth = 1.2; fx.beginPath(); fx.moveTo(vx0, vy + ch * 0.9); fx.lineTo(vx0, vy); fx.lineTo(vx1, vy); fx.lineTo(vx1, vy + ch * 0.9); fx.stroke();
           for (let k = 0; k < 3; k++) { fx.fillStyle = `hsl(${(a.hue + k * 60) % 360} 60% 60%)`; const sw2 = Math.sin(ts * (1 + wx.wind * 3) + k) * 2 * z; fx.fillRect(vx0 + (k + 0.6) * (vx1 - vx0) / 4 + sw2, vy, cs * 0.35, ch * 0.35); }
+        }
+      } });
+    }
+    // campo de trigo: terra arada, brotos, trigo verde e trigo dourado balançando
+    const fd = sim.field;
+    if (fd && z >= 0.4 && inV(fd.x + fd.w / 2, fd.y + fd.h / 2, fd.w)) {
+      const stg = sim.wheat.stage;
+      for (let r = 0; r < fd.h; r++) ds.push({ y: fd.y + r - 0.2, draw: () => {
+        fx.font = `700 ${Math.round(ch * 0.62)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+        const y = fd.y + r;
+        fx.fillStyle = '#5a3e24'; fx.fillRect(sx(fd.x) - cs * 0.5, sy(y) - ch * 0.5, cs * fd.w, ch);
+        for (let x = fd.x; x < fd.x + fd.w; x++) for (let k = 0; k < 2; k++) {
+          const px = sx(x) + (k - 0.5) * cs * 0.45, sw2 = stg >= 2 ? Math.sin(ts * (1.2 + wx.wind * 2.5) + x * 0.6 + r) * cs * 0.08 * (0.4 + wx.wind) : 0;
+          if (stg === 0) { fx.fillStyle = '#7a5a38'; fx.fillText('=', px, sy(y) - ch * 0.05); continue; }
+          fx.fillStyle = stg === 3 ? (k ? '#f0c860' : '#dcae44') : stg === 2 ? '#8ccc62' : '#9ad870';
+          fx.fillText(stg === 1 ? ',' : stg === 2 ? '|' : 'Ψ', px + sw2, sy(y) - ch * (stg === 1 ? 0.05 : 0.25));
         }
       } });
     }
@@ -457,10 +484,11 @@ export class Renderer {
     ds.sort((p, q) => p.y - q.y);
     for (const d of ds) d.draw();
 
-    // fumaça das chaminés no fim do dia
-    if (evening) {
+    // fumaça das chaminés no fim do dia (e na casa do padeiro quando o forno está aceso)
+    const baking = houses.filter(({ a }) => a.state === 'BAKE' && a.phase === 'stay');
+    if (evening || baking.length) {
       fx.font = `700 ${Math.round(9 * z)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
-      for (const { a, spr } of houses) for (let k = 0; k < 4; k++) {
+      for (const { a, spr } of evening ? houses : baking) for (let k = 0; k < 4; k++) {
         const life = (ts * 0.35 + k / 4 + a.hue / 360) % 1;
         fx.fillStyle = `rgba(150,150,160,${0.35 * (1 - life)})`;
         fx.fillText(k % 2 ? '°' : 'o', sx(a.home.x - HOUSE_DX) + spr.w * 0.17 + Math.sin(ts + k * 2) * 4 * z + life * 10 * z, sy(a.home.y) - spr.h * 0.85 - life * 40 * z);

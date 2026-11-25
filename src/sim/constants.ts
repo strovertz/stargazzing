@@ -43,5 +43,7 @@ export const PETS = ['cachorro', 'gato', 'galinha', 'pato', 'sapo'] as const;
 export const PET_NAMES = ['Pipoca', 'Farofa', 'Paçoca', 'Biscoito', 'Tico', 'Nina', 'Bolota', 'Pitoco', 'Mel', 'Jujuba', 'Fubá', 'Cacau', 'Pingo', 'Luna', 'Toddy', 'Banzé'];
 /** Tipos de casa: o login escolhe, o terreno dá a palavra final (palafita só perto da água). */
 export const HOUSES = ['cabana', 'casa de pedra', 'casa na árvore', 'palafita', 'tenda'] as const;
-export const PROFS = ['lenhador', 'pescador', 'músico', 'jardineiro', 'explorador', 'minerador'] as const;
+export const PROFS = ['lenhador', 'pescador', 'músico', 'jardineiro', 'explorador', 'minerador', 'agricultor', 'padeiro', 'carteiro'] as const;
+/** As 6 primeiras saem do hash do login; agricultor, padeiro e carteiro vieram depois e pegam 1 em cada 3. */
+export const BASE_PROFS = 6;
 export type Prof = (typeof PROFS)[number];

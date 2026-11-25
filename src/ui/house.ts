@@ -1,6 +1,7 @@
 import { HOUSES, INSTRUMENTS, PETS } from '../sim/constants';
 import type { Agent } from '../sim/types';
 import { spritesFor } from '../render/sprites';
+import { CROPS, cropOf } from '../sim/farm';
 
 /**
  * Planta da casa em ASCII marrom, no estilo dos jogos de bolso: paredes grossas, piso de tábua,
@@ -73,10 +74,11 @@ export class HouseView {
     if (a.pet && home) { ctx.fillStyle = '#3a2410'; ctx.font = `700 ${Math.round(T * 0.55)}px Inter,sans-serif`; ctx.fillText('z', 11 * T, 10.6 * T); }
 
     this.title.textContent = `${HOUSES[a.house]![0]!.toUpperCase()}${HOUSES[a.house]!.slice(1)} de ${a.name}`;
-    const extras = [days >= 3 ? 'dois cômodos e cerca' : '', days >= 7 ? 'horta' : '', days >= 14 ? 'segundo andar e varal' : ''].filter(Boolean);
+    const extras = [days >= 3 ? 'dois cômodos e cerca' : '', days >= 14 ? 'segundo andar e varal' : ''].filter(Boolean);
     const chest = a.items.length ? a.items.join(', ') : 'vazio por enquanto';
     this.info.textContent = `${days ? `${days} dia${days > 1 ? 's' : ''} de vila` : 'chegou hoje'}${extras.length ? ` · ${extras.join(', ')}` : ''}` +
       `${a.prof === 2 ? ` · ${INSTRUMENTS[a.instrument]} na parede` : ''}${a.pet ? ` · ${PETS[a.pet.kind]} ${a.pet.name}` : ''}` +
+      ` · horta de ${CROPS[cropOf(a.name)]!.n}` +
       ` · ${home ? (sleeping ? 'dormindo agora' : 'em casa agora') : 'saiu de casa'} · No baú: ${chest}.`;
     this.root.hidden = false;
   }

@@ -30,6 +30,12 @@ const TOOLS: string[][] = [
   ['....', '....', '....', 'G...', '.GGG', 'GGGG', 'GGGG', '.GG.', '....'],
   ['....', '....', '....', 'PPP.', 'PpPP', 'PPPP', 'PPPP', '....', '....'],
   ['GGG.', 'G.wG', '..w.', '..w.', '..w.', '..w.', '..w.', '....', '....'],
+  // agricultor: enxada com feixe de trigo
+  ['GG.S', '.wSS', '.wS.', '.w..', '.w..', '.w..', '.w..', '....', '....'],
+  // padeiro: pá de forno com pão
+  ['.BB.', 'BppB', '.BB.', '.w..', '.w..', '.w..', '.w..', '....', '....'],
+  // carteiro: bolsa de cartas
+  ['....', '....', '..w.', '.w..', 'PPPP', 'PFFP', 'PFFP', 'PPPP', '....'],
 ];
 /** Instrumentos do músico (alaúde, flauta, tambor, harpa, gaita), no mesmo tamanho dos itens. */
 const INSTR: string[][] = [
