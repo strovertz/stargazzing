@@ -45,7 +45,10 @@ try {
     const kind = token.startsWith('ghp_') ? 'clássico' : token.startsWith('github_pat_') ? 'fine-grained' : token.startsWith('ghs_') ? 'GITHUB_TOKEN' : 'desconhecido';
     const auth = { ...headers, Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` };
     const st = async u => (await fetch(`https://api.github.com/${u}`, { headers: auth })).status;
-    console.log(`token ${kind} (${token.length} caracteres): /user ${await st('user')}, /repos/${repo} ${await st(`repos/${repo}`)}, stargazers ${await st(`repos/${repo}/stargazers`)}`);
+    const sg = await fetch(`https://api.github.com/repos/${repo}/stargazers`, { headers: auth });
+    console.log(`token ${kind}: /user ${await st('user')}, /repos/${repo} ${await st(`repos/${repo}`)}, stargazers ${sg.status}; ` +
+      `escopos do token: "${sg.headers.get('x-oauth-scopes') ?? ''}", aceitos: "${sg.headers.get('x-accepted-oauth-scopes') ?? ''}", ` +
+      `permissões fine-grained aceitas: "${sg.headers.get('x-accepted-github-permissions') ?? ''}"`);
   }
   // Sem API (limite, rede): mantém o arquivo atual para o deploy não quebrar.
   try {
