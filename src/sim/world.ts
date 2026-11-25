@@ -68,7 +68,8 @@ export class Terrain {
       while (T[i] !== Tile.Grass) i++;
       this.plazas.push({ x: i % COLS, y: (i / COLS) | 0, main: true });
     }
-    for (const p of this.plazas) this.block[p.y * COLS + p.x] = 1;
+    // fogueira: pedras e chamas ocupam 3x2 células
+    for (const p of this.plazas) for (let dx = -1; dx <= 1; dx++) { const i = p.y * COLS + p.x + dx; this.block[i] = this.block[i - COLS] = 1; }
     // mata nativa
     for (let y = 4; y < ROWS - 1; y++) for (let x = 3; x < COLS - 3; x++) {
       const i = y * COLS + x;

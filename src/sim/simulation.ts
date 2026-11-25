@@ -1,6 +1,6 @@
 import { hsl, css } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
-import { COLS, DAY_MS, DIR4, DIR8, FLOWERS, HAIR, HATS, N, PANTS, ROWS, SKIN, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
+import { COLS, DAY_MS, DIR4, DIR8, FLOWERS, HAIR, HATS, HOUSE_DX, N, PANTS, ROWS, SKIN, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
 import { Terrain } from './world';
 import type { Agent, AgentMeta, Plaza, Point, State, Tree, WorldFile } from './types';
 
@@ -9,6 +9,14 @@ export const isNight = (h: number) => h >= 22.5 || h < 5.5;
 export const stageOf = (t: Tree) => (t.growth < 8 ? 0 : t.growth < 30 ? 1 : t.growth < 80 ? 2 : 3);
 
 /** Meia-noite local do mundo (fuso fixo) que contém o instante `ms`: é o ponto de checkpoint. */
+/** Células da cabana (e, com withHome, também a casa e a árvore) para a casa em i. */
+function houseCells(i: number, withHome: boolean): number[] {
+  const c: number[] = [];
+  for (let dx = -HOUSE_DX - 1; dx <= -HOUSE_DX + 1; dx++) c.push(i + dx, i - COLS + dx);
+  if (withHome) c.push(i, i + 1);
+  return c;
+}
+
 export function genesisFor(ms: number, tzHours: number): number {
   const off = tzHours * 3_600_000;
   return Math.floor((ms + off) / DAY_MS) * DAY_MS - off;
@@ -131,7 +139,7 @@ export class Simulation {
     for (let k = 0; k < 900; k++) {
       const relax = k > 600, x = 3 + Math.floor(a.r() * (COLS - 7)), y = 4 + Math.floor(a.r() * (ROWS - 6)), i = y * COLS + x;
       let ok = true;
-      for (const d of [-1, 0, 1]) { const j = i + d; if (!(T[j] === Tile.Grass || T[j] === Tile.Forest) || !comp[j] || block[j]) ok = false; }
+      for (const j of houseCells(i, true)) if (!(T[j] === Tile.Grass || T[j] === Tile.Forest) || !comp[j] || block[j]) ok = false;
       if (!ok || plazas.some(p => Math.abs(p.x - x) < 10 && Math.abs(p.y - y) < 6)) continue;
       if (!relax && this.reserved.some(p => Math.abs(p.x - x) < 8 && Math.abs(p.y - y) < 4)) continue;
       this.reserved.push({ x, y });
@@ -141,10 +149,10 @@ export class Simulation {
     return { x: p.x, y: p.y + 4 };
   }
 
-  /** Cabana à esquerda da casa, árvore à direita. */
+  /** Cabana à esquerda da casa (3 células, duas linhas), árvore à direita. */
   private build(a: Agent): Tree {
     const i = a.home.y * COLS + a.home.x;
-    this.terrain.block[i - 1] = 1;
+    for (const j of houseCells(i, false)) this.terrain.block[j] = 1;
     this.terrain.block[i + 1] = 1;
     a.hut = true;
     const tr: Tree = { x: a.home.x + 1, y: a.home.y, sp: a.species, growth: 0, lastWater: this.tick };

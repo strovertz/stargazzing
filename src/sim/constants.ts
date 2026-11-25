@@ -33,3 +33,5 @@ export const HAIR = ['#2b1b0e', '#5a3825', '#d8b66e', '#b5523b', '#151515', '#e6
 export const PANTS = ['#2d3a5a', '#3b2f2f', '#2f4a3a', '#4a3b5c', '#4c4c52', '#5a4630'];
 export const HATS = ['cap', 'beanie', 'wizard', 'crown', 'flower', 'none', 'band'] as const;
 export type Hat = (typeof HATS)[number];
+/** A cabana fica centrada em home.x - HOUSE_DX e ocupa 3 células (home.x-3..home.x-1), duas linhas de fundo. */
+export const HOUSE_DX = 2;

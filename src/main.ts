@@ -137,14 +137,17 @@ function start(): void {
     renderer.warm = true; renderer.drawScene((sim.tick * TICK_MS) / 1000);
     el.hidden = true; ready = true;
     renderStatus(); renderPlayers(true);
-    $('msg').textContent = `Mundo refeito em ${((performance.now() - t0) / 1000).toFixed(1)} s. Star simulada só no seu navegador.`;
+    $('msg').textContent = `Mundo refeito em ${((performance.now() - t0) / 1000).toFixed(1)} s.`;
   };
   chunk();
 }
 
-let lastScene = 0, lastUi = 0, lastMini = 0;
+let lastScene = 0, lastUi = 0, lastMini = 0, lastFrame = 0;
+/** 30 quadros por segundo bastam: o mundo anda a cada 500 ms e o resto é interpolado. */
+const FRAME_MS = 1000 / 30 - 2;
 function loop(now: number): void {
-  if (ready) {
+  if (ready && now - lastFrame >= FRAME_MS) {
+    lastFrame = now;
     simMs = Date.now(); // sempre ao vivo: o mundo segue o relógio real
     sim.runUntil(sim.tickAt(simMs), 5000);
     const tf = (simMs - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;

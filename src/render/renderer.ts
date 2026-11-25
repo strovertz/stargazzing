@@ -1,6 +1,6 @@
 import { css, hex, mix, type RGB } from '../core/color';
 import { h32 } from '../core/rng';
-import { COLS, N, ROWS, SPECIES, TICK_MS, Tile } from '../sim/constants';
+import { COLS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, Tile } from '../sim/constants';
 import { hourAt, stageOf, type Simulation } from '../sim/simulation';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
@@ -15,6 +15,7 @@ export const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25, 1.6, 2];
 /** Cores do minimapa (1 pixel por célula). */
 const MINI: Record<number, RGB> = { 0: hex('#0b2333'), 1: hex('#16405a'), 2: hex('#5e5139'), 3: hex('#1f4a2b'), 4: hex('#12291a'), 5: hex('#474a51'), 6: hex('#50505a'), 7: hex('#2e2e35') };
 /** Luz do dia (1 = meio-dia). O mundo nunca fica totalmente claro: há sempre uma penumbra. */
+const DARK_SCALE = 0.25;
 const lightAt = (h: number) => (h >= 7 && h < 17.5 ? 1 : h >= 19.5 || h < 5 ? 0 : h < 7 ? (h - 5) / 2 : 1 - (h - 17.5) / 2);
 
 /**
@@ -57,10 +58,12 @@ export class Renderer {
   }
 
   resize(): void {
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.dpr = Math.min(1.5, window.devicePixelRatio || 1);
     this.VW = innerWidth;
     this.VH = innerHeight;
-    for (const c of [this.bgc, this.fgc, this.dark]) { c.width = Math.round(this.VW * this.dpr); c.height = Math.round(this.VH * this.dpr); }
+    for (const c of [this.bgc, this.fgc]) { c.width = Math.round(this.VW * this.dpr); c.height = Math.round(this.VH * this.dpr); }
+    // a escuridão só tem gradientes suaves: 1/4 da resolução e ampliada com suavização
+    this.dark.width = Math.ceil(this.VW * DARK_SCALE); this.dark.height = Math.ceil(this.VH * DARK_SCALE);
     clearTreeCache();
     clearPropCache();
     this.clampCam();
@@ -172,7 +175,7 @@ export class Renderer {
     for (const w of sim.terrain.wild) if (inV(w.x, w.y)) trees.push({ x: w.x, y: w.y, kind: ['mata-copa', 'mata-pinho', 'cipreste'][w.sp]!, variant: h32(w.x, w.y, 5) % 4, scale: w.big ? 1.1 : 0.75, thirsty: false });
     for (const t of sim.trees) { const st = stageOf(t); if (st > 0 && inV(t.x, t.y)) trees.push({ x: t.x, y: t.y, kind: SPECIES[t.sp]!.n, variant: h32(t.x, t.y, 5) % 4, scale: [0, 0.4, 0.7, 1][st]!, thirsty: sim.tick - t.lastWater > 3000 && !rain }); }
     const evening = L < 0.95;
-    const houses = sim.agents.filter(a => a.hut && inV(a.home.x - 1, a.home.y, 4)).map(a => ({ a, spr: houseSprite(a.hue, evening, cs, ch, this.dpr) }));
+    const houses = sim.agents.filter(a => a.hut && inV(a.home.x - HOUSE_DX, a.home.y, 4)).map(a => ({ a, spr: houseSprite(a.hue, evening, cs, ch, this.dpr) }));
     const fires = sim.terrain.plazas.filter(p => inV(p.x, p.y, 3));
     const sprites = trees.map(t => ({ t, spr: treeSprite(t.kind, t.variant, t.scale, t.thirsty, z, this.dpr, CW, CH) }));
 
@@ -183,7 +186,7 @@ export class Renderer {
       const len = spr.h * shLen;
       fx.beginPath(); fx.ellipse(sx(t.x) + sun * len * 0.5, sy(t.y) - ch * 0.2 + len * 0.12, spr.canopyW * 0.42 + Math.abs(sun) * len * 0.5, spr.canopyW * 0.2 + len * 0.08, 0, 0, 7); fx.fill();
     }
-    for (const { a, spr } of houses) { fx.beginPath(); fx.ellipse(sx(a.home.x - 1) + sun * spr.h * shLen * 0.4, sy(a.home.y) - ch * 0.1, spr.w * 0.55 + Math.abs(sun) * spr.h * 0.3, ch * 0.35, 0, 0, 7); fx.fill(); }
+    for (const { a, spr } of houses) { fx.beginPath(); fx.ellipse(sx(a.home.x - HOUSE_DX) + sun * spr.h * shLen * 0.4, sy(a.home.y) - ch * 0.1, spr.w * 0.55 + Math.abs(sun) * spr.h * 0.3, ch * 0.35, 0, 0, 7); fx.fill(); }
     fx.fillStyle = 'rgba(0,0,0,.35)';
     for (const a of list) { const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)); fx.beginPath(); fx.ellipse(sx(a.px + (a.x - a.px) * f), sy(a.py + (a.y - a.py) * f) - 2 * z, 5 * sc, 1.6 * sc, 0, 0, 7); fx.fill(); }
 
@@ -194,7 +197,7 @@ export class Renderer {
       const wind = sim.terrain.noise(t.x * 0.06 - ts * 0.35, t.y * 0.12, ts * 0.05), sk = wind * 0.07 + Math.sin(ts * 1.7 + t.x) * 0.008;
       ds.push({ y: t.y + 0.01, draw: () => { fx.save(); fx.translate(sx(t.x), sy(t.y)); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h); fx.restore(); } });
     }
-    for (const { a, spr } of houses) ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(a.home.x - 1) - spr.w / 2, sy(a.home.y) - spr.h + ch * 0.1, spr.w, spr.h) });
+    for (const { a, spr } of houses) ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(a.home.x - HOUSE_DX) - spr.w / 2, sy(a.home.y) - spr.h + ch * 0.1, spr.w, spr.h) });
     for (const a of list) {
       const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)), wx = a.px + (a.x - a.px) * f, wy = a.py + (a.y - a.py) * f, moving = f < 1;
       const p = { x: sx(wx), y: sy(wy) };
@@ -214,28 +217,36 @@ export class Renderer {
       for (const { a, spr } of houses) for (let k = 0; k < 4; k++) {
         const life = (ts * 0.35 + k / 4 + a.hue / 360) % 1;
         fx.fillStyle = `rgba(150,150,160,${0.35 * (1 - life)})`;
-        fx.fillText(k % 2 ? '°' : 'o', sx(a.home.x - 1) + spr.w * 0.17 + Math.sin(ts + k * 2) * 4 * z + life * 10 * z, sy(a.home.y) - spr.h * 0.85 - life * 40 * z);
+        fx.fillText(k % 2 ? '°' : 'o', sx(a.home.x - HOUSE_DX) + spr.w * 0.17 + Math.sin(ts + k * 2) * 4 * z + life * 10 * z, sy(a.home.y) - spr.h * 0.85 - life * 40 * z);
       }
     }
 
     // escuridão com furos de luz (fogueiras sempre; janelas ao anoitecer)
     const dark = 0.05 + (1 - L) * 0.47 + (rain ? 0.06 : 0);
-    const dx = this.dx;
-    dx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    dx.globalCompositeOperation = 'source-over';
-    dx.clearRect(0, 0, VW, VH);
-    dx.fillStyle = `rgba(8,12,30,${Math.min(0.6, dark)})`;
-    dx.fillRect(0, 0, VW, VH);
-    dx.globalCompositeOperation = 'destination-out';
-    const hole = (x: number, y: number, r: number, s: number) => { const g = dx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${s})`); g.addColorStop(0.55, `rgba(0,0,0,${s * 0.55})`); g.addColorStop(1, 'rgba(0,0,0,0)'); dx.fillStyle = g; dx.beginPath(); dx.arc(x, y, r, 0, 7); dx.fill(); };
     const flick = (k: number) => 1 + Math.sin(ts * 11 + k) * 0.05 + Math.sin(ts * 23 + k * 3) * 0.035;
-    for (const p of fires) hole(sx(p.x), sy(p.y) - ch * 0.5, cs * 11 * flick(p.x), 0.95);
-    if (evening) for (const { a, spr } of houses) hole(sx(a.home.x - 1), sy(a.home.y) - spr.h * 0.3, cs * 4.5, 0.8 * (1 - L));
-    fx.drawImage(this.dark, 0, 0, VW, VH);
+    if (dark < 0.12) {
+      // de dia a luz das fogueiras nem aparece: só um véu, sem camada extra
+      fx.fillStyle = `rgba(8,12,30,${dark})`;
+      fx.fillRect(0, 0, VW, VH);
+    } else {
+      const dx = this.dx;
+      dx.setTransform(DARK_SCALE, 0, 0, DARK_SCALE, 0, 0);
+      dx.globalCompositeOperation = 'source-over';
+      dx.clearRect(0, 0, VW, VH);
+      dx.fillStyle = `rgba(8,12,30,${Math.min(0.6, dark)})`;
+      dx.fillRect(0, 0, VW, VH);
+      dx.globalCompositeOperation = 'destination-out';
+      const hole = (x: number, y: number, r: number, s: number) => { const g = dx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${s})`); g.addColorStop(0.55, `rgba(0,0,0,${s * 0.55})`); g.addColorStop(1, 'rgba(0,0,0,0)'); dx.fillStyle = g; dx.beginPath(); dx.arc(x, y, r, 0, 7); dx.fill(); };
+      for (const p of fires) hole(sx(p.x), sy(p.y) - ch * 0.5, cs * 11 * flick(p.x), 0.95);
+      if (evening) for (const { a, spr } of houses) hole(sx(a.home.x - HOUSE_DX), sy(a.home.y) - spr.h * 0.3, cs * 4.5, 0.8 * (1 - L));
+      fx.imageSmoothingEnabled = true;
+      fx.drawImage(this.dark, 0, 0, this.dark.width / DARK_SCALE, this.dark.height / DARK_SCALE);
+      fx.imageSmoothingEnabled = false;
+    }
     // brilho quente
     fx.globalCompositeOperation = 'lighter';
     for (const p of fires) { const x = sx(p.x), y = sy(p.y) - ch * 0.5, r = cs * 6 * flick(p.x + 9); const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,150,60,${0.32 + (1 - L) * 0.2})`); g.addColorStop(1, 'rgba(255,120,40,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
-    if (evening) for (const { a, spr } of houses) { const x = sx(a.home.x - 1), y = sy(a.home.y) - spr.h * 0.3, r = cs * 2; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,190,90,${0.22 * (1 - L)})`); g.addColorStop(1, 'rgba(255,190,90,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
+    if (evening) for (const { a, spr } of houses) { const x = sx(a.home.x - HOUSE_DX), y = sy(a.home.y) - spr.h * 0.3, r = cs * 2; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,190,90,${0.22 * (1 - L)})`); g.addColorStop(1, 'rgba(255,190,90,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
     fx.globalCompositeOperation = 'source-over';
     for (const p of fires) drawFire(fx, sx(p.x), sy(p.y) - ch * 0.45, cs * 1.5, ch * 1.5, ts, seed + p.x);
 

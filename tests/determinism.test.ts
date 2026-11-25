@@ -86,4 +86,22 @@ describe('desempenho', () => {
     const s = run(2000, { ...W, stargazers: [] });
     expect(s.agents.length).toBe(0);
   });
+
+  it('ninguém atravessa fogueira, cabana ou tronco', () => {
+    const s = new Simulation(W, GENESIS);
+    let bad = 0, seen = 0;
+    for (let t = 0; t < 30_000; t += 7) {
+      s.runUntil(t);
+      for (const a of s.agents) {
+        if (!a.present) continue;
+        seen++;
+        if (a.phase === 'stay') continue;
+        const onFire = s.terrain.plazas.some(p => (a.y === p.y || a.y === p.y - 1) && Math.abs(a.x - p.x) <= 1);
+        const onHut = s.agents.some(b => b.hut && (a.y === b.home.y || a.y === b.home.y - 1) && a.x >= b.home.x - 3 && a.x <= b.home.x - 1);
+        if (onFire || onHut) bad++;
+      }
+    }
+    expect(seen).toBeGreaterThan(1000);
+    expect(bad).toBe(0);
+  }, 30_000);
 });
