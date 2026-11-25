@@ -8,18 +8,20 @@ export function fnv(s: string): number {
   return h >>> 0;
 }
 
-export type Rng = () => number;
+/** Sorteador: a função devolve [0, 1); `s` guarda o estado, para salvar e retomar a simulação. */
+export type Rng = (() => number) & { s: number };
 
 /** PRNG mulberry32: rápido, 32 bits, totalmente determinístico. */
 export function mulberry32(seed: number): Rng {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
+  const f = (() => {
+    const a = (f.s + 0x6d2b79f5) | 0;
+    f.s = a;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  }) as Rng;
+  f.s = seed | 0;
+  return f;
 }
 
 /** Hash inteiro de três números, para sorteios por célula sem guardar estado. */

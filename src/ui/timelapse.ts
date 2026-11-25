@@ -18,6 +18,7 @@ export class Timelapse {
     root.querySelector('button')!.addEventListener('click', () => this.stop());
   }
 
+  get on(): boolean { return !this.root.hidden; }
   stop(): void { cancelAnimationFrame(this.raf); this.root.hidden = true; }
 
   play(sim: Simulation, renderer: Renderer): void {

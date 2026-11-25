@@ -10,6 +10,7 @@ import { spritesFor, toolSprite } from './sprites';
 import { drawAnimals, drawCat, drawDeer, drawPets } from './animals';
 import { lookFor } from '../sim/look';
 import { clearTreeCache, treeSprite } from './trees';
+import { glow } from './glow';
 
 export const CW = 10;
 export const CH = 18;
@@ -78,8 +79,12 @@ export class Renderer {
     this.resize();
   }
 
+  /** Qualidade: 2 completa, 1 resolução menor, 0 resolução menor e sem o vento na grama. */
+  quality = 2;
+  setQuality(q: number): void { q = Math.max(0, Math.min(2, q)); if (q === this.quality) return; this.quality = q; this.resize(); this.warm = true; }
+
   resize(): void {
-    this.dpr = Math.min(1.5, window.devicePixelRatio || 1);
+    this.dpr = Math.min([0.75, 1, 1.5][this.quality]!, window.devicePixelRatio || 1);
     this.VW = innerWidth;
     this.VH = innerHeight;
     for (const c of [this.bgc, this.fgc]) { c.width = Math.round(this.VW * this.dpr); c.height = Math.round(this.VH * this.dpr); }
@@ -95,6 +100,30 @@ export class Renderer {
   minZi(): number {
     for (let i = 0; i < ZOOMS.length; i++) if (ZOOMS[i]! * CW * COLS >= this.VW && ZOOMS[i]! * CH * ROWS >= this.VH) return i;
     return ZOOMS.length - 1;
+  }
+
+  /**
+   * Listas prontas das poucas células que interessam (flores, cogumelos que brilham,
+   * estrelas refletidas na água), refeitas só quando o chão muda: o quadro percorre
+   * centenas de células em vez de varrer a tela inteira.
+   */
+  private lists = { flower: [] as number[], mush: [] as number[], water: [] as number[], gv: -1, tv: -1, sim: null as Simulation | null };
+  private cells(kind: 'flower' | 'mush' | 'water'): number[] {
+    const L = this.lists, sim = this.sim, t = sim.terrain;
+    if (L.sim !== sim) { L.sim = sim; L.gv = L.tv = -1; }
+    if (kind === 'flower' && L.gv !== sim.groundVersion) {
+      L.gv = sim.groundVersion; L.flower = [];
+      for (let i = 0; i < N; i++) if (sim.flower[i]) L.flower.push(i);
+    }
+    if (kind !== 'flower' && L.tv !== t.version) {
+      L.tv = t.version; L.mush = []; L.water = [];
+      for (let i = 0; i < N; i++) {
+        const x = i % COLS, y = (i / COLS) | 0;
+        if (t.deco[i] === 2 && h32(x, y, t.seed + 21) % 3 === 0) L.mush.push(i);
+        if (t.T[i]! <= Tile.Shallow && h32(x, y, t.seed + 13) % 7 === 0) L.water.push(i);
+      }
+    }
+    return L[kind];
   }
 
   setSim(sim: Simulation): void { this.sim = sim; this.groundCache.setSim(sim); this.miniVersion = -1; this.dirty = true; this.warm = true; }
@@ -169,7 +198,7 @@ export class Renderer {
       bx.drawImage(this.mini, cx * CHUNK, cy * CHUNK, w, hh, dxp, dyp, Math.ceil(w * cw), Math.ceil(hh * ch));
     }
     // vento e brilho na água: milhares de caracteres, então só com o chão pronto e zoom em que dá para ver
-    if (pending || z < 0.8) { this.dirty = pending; return; }
+    if (pending || z < 0.8 || this.quality === 0) { this.dirty = pending; return; }
     const windNow = sim.weather().wind, windSp = 0.2 + windNow * 0.5, windMin = 0.3 - windNow * 0.16;
     // vento: faixas de rajada passam pela grama; brilho na água
     const x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
@@ -232,9 +261,9 @@ export class Renderer {
     if (z >= 0.65) {
       const x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
       fx.font = `700 ${Math.round(ch * 0.62)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
-      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-        const f = sim.flower[y * COLS + x];
-        if (!f) continue;
+      for (const i of this.cells('flower')) {
+        const x = i % COLS, y = (i / COLS) | 0, f = sim.flower[i];
+        if (!f || x < x0 || x >= x1 || y < y0 || y >= y1) continue;
         fl.push({ x, y });
         const hh = h32(x, y, 17), bx = sx(x) + ((hh % 7) - 3) * cs * 0.08, by = sy(y) - ch * 0.35, sway = Math.sin(ts * (1 + wx.wind * 2) + x * 0.7) * cs * 0.06 * (0.5 + wx.wind);
         fx.fillStyle = '#3f7a38'; fx.fillText('|', bx, by + ch * 0.12);
@@ -449,7 +478,7 @@ export class Renderer {
       dx.fillStyle = `rgba(8,12,30,${Math.min(0.6, dark)})`;
       dx.fillRect(0, 0, VW, VH);
       dx.globalCompositeOperation = 'destination-out';
-      const hole = (x: number, y: number, r: number, s: number) => { const g = dx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(0,0,0,${s})`); g.addColorStop(0.55, `rgba(0,0,0,${s * 0.55})`); g.addColorStop(1, 'rgba(0,0,0,0)'); dx.fillStyle = g; dx.beginPath(); dx.arc(x, y, r, 0, 7); dx.fill(); };
+      const hole = (x: number, y: number, r: number, s: number) => glow(dx, x, y, r, '0,0,0', s, r, true);
       for (const p of fires) hole(sx(p.x), sy(p.y) - ch * 0.5, cs * 11 * flick(p.x), 0.95);
       if (evening) for (const { a, spr } of houses) hole(sx(a.home.x - HOUSE_DX), sy(a.home.y) - spr.h * 0.3, cs * 4.5, 0.8 * (1 - L));
       if (lanternsOn && evening) for (const [lx, ly] of sim.lanterns) hole(sx(lx), sy(ly) - ch * 1.6, cs * 5, 0.75 * (1 - L));
@@ -462,11 +491,11 @@ export class Renderer {
     }
     // brilho quente
     fx.globalCompositeOperation = 'lighter';
-    if (lanternsOn && evening) for (const [lx, ly] of sim.lanterns) { const x = sx(lx), y = sy(ly) - ch * 1.6, r = cs * 2.2; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,210,120,${0.3 * (1 - L)})`); g.addColorStop(1, 'rgba(255,210,120,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
-    for (const p of fires) { const x = sx(p.x), y = sy(p.y) - ch * 0.5, r = cs * 6 * flick(p.x + 9); const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,150,60,${0.32 + (1 - L) * 0.2})`); g.addColorStop(1, 'rgba(255,120,40,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
-    if (evening) for (const { a, spr } of houses) { const x = sx(a.home.x - HOUSE_DX), y = sy(a.home.y) - spr.h * 0.3, r = cs * 2; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,190,90,${0.22 * (1 - L)})`); g.addColorStop(1, 'rgba(255,190,90,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
-    for (const { a } of crystals) { const x = sx(a.home.x - HOUSE_DX + 1), y = sy(a.home.y) - ch * 0.4, r = cs * 1.6; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(190,150,255,${0.45 * (1 - L)})`); g.addColorStop(1, 'rgba(190,150,255,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
-    if (sim.crystalLit) for (const lm of sim.terrain.landmarks) if (lm.kind === 'templo' && inV(lm.x + 3, lm.y, 8)) { const x = sx(lm.x + 3), y = sy(lm.y) - ch * 2.6, r = cs * (3 + Math.sin(ts * 1.5) * 0.4); const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(200,170,255,.55)'); g.addColorStop(1, 'rgba(200,170,255,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
+    if (lanternsOn && evening) for (const [lx, ly] of sim.lanterns) glow(fx, sx(lx), sy(ly) - ch * 1.6, cs * 2.2, '255,210,120', 0.3 * (1 - L));
+    for (const p of fires) glow(fx, sx(p.x), sy(p.y) - ch * 0.5, cs * 6 * flick(p.x + 9), '255,140,52', 0.32 + (1 - L) * 0.2);
+    if (evening) for (const { a, spr } of houses) glow(fx, sx(a.home.x - HOUSE_DX), sy(a.home.y) - spr.h * 0.3, cs * 2, '255,190,90', 0.22 * (1 - L));
+    for (const { a } of crystals) glow(fx, sx(a.home.x - HOUSE_DX + 1), sy(a.home.y) - ch * 0.4, cs * 1.6, '190,150,255', 0.45 * (1 - L));
+    if (sim.crystalLit) for (const lm of sim.terrain.landmarks) if (lm.kind === 'templo' && inV(lm.x + 3, lm.y, 8)) glow(fx, sx(lm.x + 3), sy(lm.y) - ch * 2.6, cs * (3 + Math.sin(ts * 1.5) * 0.4), '200,170,255', 0.55);
     fx.globalCompositeOperation = 'source-over';
     if (burn) {
       // árvore em chamas: fogo alto e fumaça subindo
@@ -479,12 +508,11 @@ export class Renderer {
     if (L < 0.5 && z >= 0.65) {
       const x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
       fx.globalCompositeOperation = 'lighter';
-      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-        const hh = h32(x, y, seed + 21);
-        if (sim.terrain.deco[y * COLS + x] !== 2 || hh % 3) continue;
+      for (const i of this.cells('mush')) {
+        const x = i % COLS, y = (i / COLS) | 0, hh = h32(x, y, seed + 21);
+        if (x < x0 || x >= x1 || y < y0 || y >= y1) continue;
         const px = sx(x) + ((hh >>> 4) % 10 - 5) * cs * 0.06, py = sy(y) - ch * 0.4, a = (0.35 + 0.25 * Math.sin(ts * 1.5 + hh)) * (1 - L);
-        const g = fx.createRadialGradient(px, py, 0, px, py, cs * 0.9); g.addColorStop(0, `rgba(120,220,255,${a})`); g.addColorStop(1, 'rgba(120,220,255,0)');
-        fx.fillStyle = g; fx.beginPath(); fx.arc(px, py, cs * 0.9, 0, 7); fx.fill();
+        glow(fx, px, py, cs * 0.9, '120,220,255', a);
       }
       fx.globalCompositeOperation = 'source-over';
     }
@@ -597,16 +625,15 @@ export class Renderer {
     this.skyLanterns = this.skyLanterns.filter(lt => ts - lt.t0 < 25);
     for (const lt of this.skyLanterns) {
       const u = ts - lt.t0, x = sx(lt.x + Math.sin(u * 0.4) * 2), y = sy(lt.y - u * 0.9), a = 1 - u / 25;
-      const g = fx.createRadialGradient(x, y, 0, x, y, 18); g.addColorStop(0, `rgba(255,${170 + lt.hue},90,${0.5 * a})`); g.addColorStop(1, 'rgba(255,170,90,0)');
-      fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, 18, 0, 7); fx.fill();
+      glow(fx, x, y, 18, `255,${170 + lt.hue},90`, 0.5 * a);
       fx.fillStyle = `rgba(255,${190 + lt.hue / 2},120,${a})`; fx.fillRect(x - 4, y - 6, 8, 10);
     }
     // céu refletido nos lagos: estrelas piscando e estrela cadente
     if (L < 0.4 && wx.cloud < 0.6) {
       const a0 = (1 - L) * (1 - wx.cloud), x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
-      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-        const hh = h32(x, y, seed + 13);
-        if (hh % 7 || sim.terrain.T[y * COLS + x]! > Tile.Shallow) continue;
+      for (const i of this.cells('water')) {
+        const x = i % COLS, y = (i / COLS) | 0, hh = h32(x, y, seed + 13);
+        if (x < x0 || x >= x1 || y < y0 || y >= y1) continue;
         fx.fillStyle = `rgba(235,240,255,${a0 * (0.35 + 0.45 * Math.sin(ts * (1 + (hh % 5) * 0.4) + hh))})`;
         fx.fillRect(sx(x) + ((hh >>> 4) % 10 - 5) * cs * 0.08, sy(y) - ch * (0.2 + ((hh >>> 8) % 6) * 0.1), 1.5, 1.5);
       }
@@ -626,9 +653,7 @@ export class Renderer {
       for (let k = 0; k < 7; k++) {
         const px = ((((h32(k, 21, seed) % 1000) / 1000) * (VW + 600) + ts * (8 + wx.wind * 20)) % (VW + 600)) - 300;
         const py = ((h32(k, 23, seed) % 1000) / 1000) * VH, r = 180 + (h32(k, 25, seed) % 220);
-        const g = fx.createRadialGradient(px, py, 0, px, py, r);
-        g.addColorStop(0, `rgba(190,200,212,${wx.fog * 0.28})`); g.addColorStop(1, 'rgba(190,200,212,0)');
-        fx.fillStyle = g; fx.beginPath(); fx.ellipse(px, py, r * 1.8, r * 0.6, 0, 0, 7); fx.fill();
+        glow(fx, px, py, r * 1.8, '190,200,212', wx.fog * 0.28, r * 0.6);
       }
     }
     // no inverno a chuva vira neve
@@ -717,8 +742,7 @@ export class Renderer {
         const x = bx + (right ? -1 : 1) * life * 26, y = by - life * 10, a = Math.sin(life * Math.PI) * (0.16 + (1 - L) * 0.12);
         if (!inV(x, y, 12)) continue;
         const px = sx(x), py = sy(y), r = cs * (6 + (h32(k, 7, seed) % 6));
-        const g = fx.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, `rgba(200,210,220,${a})`); g.addColorStop(1, 'rgba(200,210,220,0)');
-        fx.fillStyle = g; fx.beginPath(); fx.ellipse(px, py, r * 1.6, r * 0.6, 0, 0, 7); fx.fill();
+        glow(fx, px, py, r * 1.6, '200,210,220', a, r * 0.6);
       }
       if (L < 0.4) for (let k = 0; k < 7; k++) {
         const slot = Math.floor(ts / 5 + k * 0.37), blink = (ts / 5 + k * 0.37) % 1;

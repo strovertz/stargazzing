@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { defineConfig, type Plugin } from 'vitest/config';
 import { LOGIN, residentCard, villageCard } from './src/cards/svg';
 import type { WorldFile } from './src/sim/types';
@@ -27,10 +28,16 @@ const cards: Plugin = {
   },
 };
 
+// Versão do código da simulação: checkpoints salvos por outra versão são descartados.
+const simHash = createHash('sha1');
+for (const dir of ['src/sim', 'src/core']) for (const f of readdirSync(dir).sort()) simHash.update(readFileSync(`${dir}/${f}`));
+const SIM_VERSION = simHash.digest('hex').slice(0, 12);
+
 // No GitHub Pages o site fica em https://strovertz.github.io/stargazzing/
 export default defineConfig({
   base: process.env.GITHUB_ACTIONS ? '/stargazzing/' : '/',
   plugins: [csp, cards],
+  define: { __SIM_VERSION__: JSON.stringify(SIM_VERSION) },
   build: { target: 'es2022', sourcemap: true },
   test: { environment: 'node' },
 });

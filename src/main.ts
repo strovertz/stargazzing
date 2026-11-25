@@ -13,6 +13,10 @@ import { moonPhase, nightTune } from './sim/extras';
 import type { RepoData } from './sim/types';
 import { Timelapse } from './ui/timelapse';
 import { HouseView } from './ui/house';
+import { fnv } from './core/rng';
+import { encode, restore } from './sim/snapshot';
+import { loadSnap, saveSnap } from './core/store';
+import type { ReplayJob, ReplayMsg } from './sim/worker';
 
 const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -159,7 +163,7 @@ function openDrawer(id: string): void {
 
 // ---------- reconstrução do dia ----------
 function start(): void {
-  const now = Date.now();
+  const now = Date.now(), gen = ++startGen;
   sim = new Simulation(world, genesisFor(now, tz()));
   if (renderer) renderer.setSim(sim);
   else renderer = new Renderer($<HTMLCanvasElement>('bg'), $<HTMLCanvasElement>('fg'), $<HTMLCanvasElement>('mini'), sim);
@@ -170,22 +174,63 @@ function start(): void {
   selected = null; listKey = ''; simMs = now;
   ready = false;
   const target = sim.tickAt(simMs), el = $('loading'), bar = $('loadBar'), txt = $('loadTxt'), t0 = performance.now();
+  const key = snapKey(sim.genesis), base = sim.tick;
   el.hidden = false;
-  const chunk = () => {
-    sim.runUntil(Math.min(target, sim.tick + 8000));
-    bar.style.width = `${(target ? (sim.tick / target) * 100 : 100).toFixed(1)}%`;
-    txt.textContent = `Refazendo o dia desde 00:00 a partir da semente: ${sim.tick.toLocaleString('pt-BR')} de ${target.toLocaleString('pt-BR')} ticks`;
-    if (sim.tick < target) { setTimeout(chunk, 0); return; }
+  const show = (tick: number, from: number) => {
+    bar.style.width = `${(target ? (tick / target) * 100 : 100).toFixed(1)}%`;
+    txt.textContent = from ? `Retomando do checkpoint das ${fmt(sim.genesis + from * TICK_MS)}: ${tick.toLocaleString('pt-BR')} de ${target.toLocaleString('pt-BR')} ticks`
+      : `Refazendo o dia desde 00:00 a partir da semente: ${tick.toLocaleString('pt-BR')} de ${target.toLocaleString('pt-BR')} ticks`;
+  };
+  const finish = (from: number) => {
+    renderer.setSim(sim);
     renderer.warm = true; renderer.drawScene((sim.tick * TICK_MS) / 1000);
-    el.hidden = true; ready = true;
+    el.hidden = true; ready = true; savedHour = Math.floor(sim.tick / CHECK_EVERY);
     renderStatus(); renderPlayers(true);
     // ?u=login: abre já seguindo esse morador
     const want = new URLSearchParams(location.search).get('u')?.toLowerCase();
     const who = want ? sim.agents.find(a => a.name.toLowerCase() === want) : undefined;
     if (who) { select(who); if (who.present) { renderer.cam = { x: who.x, y: who.y }; renderer.setZoom(5); renderer.clampCam(); } openDrawer('playersDrawer'); }
-    $('msg').textContent = `Mundo refeito em ${((performance.now() - t0) / 1000).toFixed(1)} s.`;
+    $('msg').textContent = `Mundo ${from ? 'retomado' : 'refeito'} em ${((performance.now() - t0) / 1000).toFixed(1)} s.`;
+    if (target - from > CHECK_EVERY) checkpoint();
   };
-  chunk();
+  // pedaços na thread principal (sem worker, ou pouco a refazer)
+  const onMain = (from: number) => {
+    const chunk = () => {
+      sim.runUntil(Math.min(target, sim.tick + 8000));
+      show(sim.tick, from);
+      if (sim.tick < target) { setTimeout(chunk, 0); return; }
+      finish(from);
+    };
+    chunk();
+  };
+  void loadSnap(key).then(snap => {
+    if (gen !== startGen) return;
+    if (snap && snap.tick <= target && snap.tick > base) restore(sim, snap);
+    const from = sim.tick > base ? sim.tick : 0;
+    if (target - sim.tick < 20_000 || typeof Worker === 'undefined') { onMain(from); return; }
+    const w = new Worker(new URL('./sim/worker.ts', import.meta.url), { type: 'module' });
+    const fallback = () => { w.terminate(); onMain(from); };
+    w.onerror = fallback;
+    w.onmessage = (e: MessageEvent<ReplayMsg>) => {
+      if (gen !== startGen) { w.terminate(); return; }
+      if (e.data.kind === 'progress') { show(e.data.tick, from); return; }
+      w.terminate();
+      restore(sim, e.data.snap);
+      sim.runUntil(sim.tickAt(Date.now()), 5000);
+      finish(from);
+    };
+    w.postMessage({ world, genesis: sim.genesis, target, key, from: snap && from ? snap : undefined } satisfies ReplayJob);
+  });
+}
+
+/** Checkpoint a cada hora do mundo: a próxima visita retoma daqui em vez de refazer o dia. */
+const CHECK_EVERY = 7200;
+let savedHour = -1, startGen = 0;
+const snapKey = (genesis: number) => `${__SIM_VERSION__}|${genesis}|${fnv(JSON.stringify([world.seed, world.timezoneOffsetHours, world.stargazers, world.extra ?? null]))}`;
+function checkpoint(): void {
+  const s = sim, key = snapKey(s.genesis);
+  const run = () => { if (s === sim) void saveSnap(encode(s, key)); };
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 4000 }); else setTimeout(run, 500);
 }
 
 let lastScene = 0, lastUi = 0, lastMini = 0, lastFrame = 0, lastSound = 0;
@@ -279,20 +324,35 @@ function updateSound(ts: number): void {
   amb.update({ rain: w.rain, wind: w.wind, storm: w.storm, day, fire: near, crowd, flash: w.storm ? lightningAt(ts, sim.terrain.seed) : 0, voice: players[0]?.instrument ?? 0, duet: players.length >= 2 });
 }
 /** 30 quadros por segundo bastam: o mundo anda a cada 500 ms e o resto é interpolado. */
-const FRAME_MS = 1000 / 30 - 2;
+const FRAME_MS = 1000 / 30 - 2, IDLE_MS = 1000 / 12 - 2;
+/** última interação: parado há 20 s (sem seguir ninguém), desenha só 12 quadros por segundo */
+let lastInput = performance.now(), hiddenAt = 0;
+/** custo médio de um quadro, para baixar ou subir a qualidade sozinho */
+let cost = 0, slowFor = 0, fastFor = 0, raised = false;
+function tuneQuality(ms: number, now: number): void {
+  cost = cost * 0.95 + ms * 0.05;
+  if (cost > 20) { slowFor ||= now; fastFor = 0; } else if (cost < 7) { fastFor ||= now; slowFor = 0; } else slowFor = fastFor = 0;
+  if (slowFor && now - slowFor > 3000 && renderer.quality > 0) { renderer.setQuality(renderer.quality - 1); slowFor = 0; cost = 12; saveQ(); }
+  else if (fastFor && now - fastFor > 15000 && renderer.quality < 2 && !raised) { renderer.setQuality(renderer.quality + 1); raised = true; fastFor = 0; saveQ(); }
+}
+const saveQ = () => { try { localStorage.setItem('qualidade', String(renderer.quality)); } catch { /* modo privado */ } };
 function loop(now: number): void {
-  if (ready && now - lastFrame >= FRAME_MS) {
+  const idle = !follow && !timelapse.on && now - lastInput > 20_000;
+  if (ready && !document.hidden && now - lastFrame >= (idle ? IDLE_MS : FRAME_MS)) {
     lastFrame = now;
     simMs = Date.now(); // sempre ao vivo: o mundo segue o relógio real
     sim.runUntil(sim.tickAt(simMs), 5000);
+    if (Math.floor(sim.tick / CHECK_EVERY) > savedHour) { savedHour = Math.floor(sim.tick / CHECK_EVERY); checkpoint(); }
     const tf = (simMs - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;
     if (follow && selected?.present) {
       const a = selected, f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace));
       const tx = a.px + (a.x - a.px) * f, ty = a.py + (a.y - a.py) * f, c = renderer.cam;
       if (Math.abs(tx - c.x) + Math.abs(ty - c.y) > 0.02) { c.x += (tx - c.x) * 0.08; c.y += (ty - c.y) * 0.08; renderer.clampCam(); }
     }
+    const t0 = performance.now();
     if (renderer.dirty || now - lastScene > 100) { renderer.drawScene(ts); lastScene = now; }
     renderer.drawActors(tf, selected, hovered);
+    tuneQuality(performance.now() - t0, now);
     if (now - lastMini > 500) { renderer.drawMini(selected); lastMini = now; }
     if (now - lastUi > 1000) { renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
     if (amb.on && now - lastSound > 200) { updateSound(ts); lastSound = now; }
@@ -327,6 +387,13 @@ function photo(): void {
 
 // ---------- eventos ----------
 function bind(): void {
+  for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true });
+  // aba escondida: o laço para; ao voltar depois de muito tempo (ou noutro dia), retoma do checkpoint
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); if (ready) checkpoint(); return; }
+    lastInput = performance.now();
+    if (ready && (Date.now() - hiddenAt > 30 * 60_000 || genesisFor(Date.now(), tz()) !== sim.genesis)) start();
+  });
   $('openHow').addEventListener('click', () => openDrawer('howDrawer'));
   $('openPlayers').addEventListener('click', () => openDrawer('playersDrawer'));
   $('openDiary').addEventListener('click', () => { diaryKey = ''; openDrawer('diaryDrawer'); renderDiary(); });
@@ -430,6 +497,7 @@ async function boot(): Promise<void> {
     ' A lista é atualizada a cada star nova e a cada 30 minutos.';
   await document.fonts?.load('16px "JetBrains Mono"').catch(() => undefined);
   start();
+  try { const q = Number(localStorage.getItem('qualidade') ?? 2); if (q === 0 || q === 1) renderer.setQuality(q); } catch { /* modo privado */ }
   bind();
   requestAnimationFrame(loop);
 }

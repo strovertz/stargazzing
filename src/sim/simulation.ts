@@ -1,6 +1,6 @@
 import { hsl } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
-import { INSTRUMENTS, PET_NAMES, PETS, PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
+import { INSTRUMENTS, PET_NAMES, PETS, PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile, WALKABLE } from './constants';
 import { affinity, commitBias, COUPLE_AT, ecosystem, FRIEND_AT, isFullMoon, merchantFor, RIVAL_AT } from './extras';
 import { age, lookFrom } from './look';
 import { Terrain } from './world';
@@ -15,6 +15,7 @@ export interface ForkCamp { login: string; x: number; y: number }
 export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number }
 
 const WED = 3;
+const DX8 = Int8Array.from(DIR8, d => d[0]), DY8 = Int8Array.from(DIR8, d => d[1]);
 
 export const hourAt = (t: number) => ((t * TICK_MS) / 3_600_000) % 24;
 /** Noite de sono: da meia-noite às 5h (corujas dormem ainda menos). */
@@ -84,7 +85,7 @@ export class Simulation {
   /** ruína secreta: aparece com 25 stars, cristal aceso com 50 */
   templeOpen = false;
   crystalLit = false;
-  private readonly gardenCells = new Set<number>();
+  private readonly gardenCells = new Uint8Array(N);
   private readonly brokenCols: number[];
   private readonly gScore = new Int32Array(N);
   private readonly closed = new Uint32Array(N);
@@ -300,7 +301,7 @@ export class Simulation {
       if (s.kind === 'jardim') {
         for (let dy = -2; dy <= 2; dy++) for (let dx = -4; dx <= 4; dx++) {
           const i = (s.y + dy) * COLS + s.x + dx;
-          if ((this.terrain.T[i] === Tile.Grass || this.terrain.T[i] === Tile.Forest) && !this.terrain.block[i] && (dx + dy) % 2 === 0) { this.flower[i] = 1 + (h32(i, 3, 7) % FLOWERS.length); this.gardenCells.add(i); }
+          if ((this.terrain.T[i] === Tile.Grass || this.terrain.T[i] === Tile.Forest) && !this.terrain.block[i] && (dx + dy) % 2 === 0) { this.flower[i] = 1 + (h32(i, 3, 7) % FLOWERS.length); this.gardenCells[i] = 1; }
         }
       }
       this.terrain.version++;
@@ -533,47 +534,43 @@ export class Simulation {
     const { prev, seen, gScore, closed } = this;
     const st = ++this.stamp;
     const heapN = this.heapN, heapF = this.heapF;
-    let size = 0;
-    const push = (n: number, f: number) => {
-      let i = size++;
-      while (i > 0) { const p = (i - 1) >> 1; if (heapF[p]! <= f) break; heapN[i] = heapN[p]!; heapF[i] = heapF[p]!; i = p; }
-      heapN[i] = n; heapF[i] = f;
-    };
-    const pop = () => {
-      const top = heapN[0]!, ln = heapN[--size]!, lf = heapF[size]!;
-      let i = 0;
-      for (;;) {
-        let c = 2 * i + 1;
-        if (c >= size) break;
-        if (c + 1 < size && heapF[c + 1]! < heapF[c]!) c++;
-        if (heapF[c]! >= lf) break;
-        heapN[i] = heapN[c]!; heapF[i] = heapF[c]!; i = c;
-      }
-      heapN[i] = ln; heapF[i] = lf;
-      return top;
-    };
-    const hh = (n: number) => { const dx = Math.abs((n % COLS) - tx), dy = Math.abs(((n / COLS) | 0) - ty); return 10 * (dx + dy) - 6 * Math.min(dx, dy); };
+    const T = this.terrain.T, block = this.terrain.block;
+    let size = 1, expanded = 0;
+    { const dx = Math.abs(sx - tx), dy = Math.abs(sy - ty); heapN[0] = s; heapF[0] = 10 * (dx + dy) - 6 * Math.min(dx, dy); }
     seen[s] = st; gScore[s] = 0; prev[s] = s;
-    push(s, hh(s));
-    let expanded = 0;
     while (size > 0 && expanded < 14000) {
-      const c = pop();
+      // pop do heap binário (mesma ordem de antes, só sem closures)
+      const c = heapN[0]!, ln = heapN[--size]!, lf = heapF[size]!;
+      {
+        let i = 0;
+        for (;;) {
+          let k = 2 * i + 1;
+          if (k >= size) break;
+          if (k + 1 < size && heapF[k + 1]! < heapF[k]!) k++;
+          if (heapF[k]! >= lf) break;
+          heapN[i] = heapN[k]!; heapF[i] = heapF[k]!; i = k;
+        }
+        heapN[i] = ln; heapF[i] = lf;
+      }
       if (c === t) break;
       if (closed[c] === st) continue;
       closed[c] = st;
       expanded++;
       const cx = c % COLS, cy = (c / COLS) | 0, gc = gScore[c]!;
-      for (const [dx, dy] of DIR8) {
-        const nx = cx + dx, ny = cy + dy;
+      for (let d = 0; d < 8; d++) {
+        const dx = DX8[d]!, dy = DY8[d]!, nx = cx + dx, ny = cy + dy;
         if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
         const ni = ny * COLS + nx;
         if (closed[ni] === st) continue;
-        if (ni !== t && !this.terrain.passable(ni)) continue;
+        if (ni !== t && (WALKABLE[T[ni]!] !== 1 || block[ni])) continue;
         const g = gc + (dx && dy ? 14 : 10);
         if (seen[ni] === st && g >= gScore[ni]!) continue;
         seen[ni] = st; gScore[ni] = g; prev[ni] = c;
         if (size >= heapN.length) return null;
-        push(ni, g + hh(ni));
+        const ax = Math.abs(nx - tx), ay = Math.abs(ny - ty), f = g + 10 * (ax + ay) - 6 * Math.min(ax, ay);
+        let i = size++;
+        while (i > 0) { const q = (i - 1) >> 1; if (heapF[q]! <= f) break; heapN[i] = heapN[q]!; heapF[i] = heapF[q]!; i = q; }
+        heapN[i] = ni; heapF[i] = f;
       }
     }
     if (seen[t] !== st) return null;
@@ -596,6 +593,8 @@ export class Simulation {
   }
 
   private shore: number[] | null = null;
+  /** as 5 margens mais perto de cada casa (a lista de margens não muda no dia) */
+  private readonly nearShore = new Map<number, number[]>();
 
   private shoreCells(): number[] {
     if (this.shore) return this.shore;
@@ -612,11 +611,16 @@ export class Simulation {
   private fishSpot(a: Agent): Point | null {
   const s = this.shoreCells();
   if (!s.length) return null;
-  const near = s
-    .map(i => ({ i, d: Math.abs((i % COLS) - a.home.x) + Math.abs(((i / COLS) | 0) - a.home.y) * 2 }))
-    .sort((p, q) => p.d - q.d || p.i - q.i)
-    .slice(0, 5);
-  const i = near[Math.floor(a.r() * near.length)]!.i;
+  const key = a.home.y * COLS + a.home.x;
+  let near = this.nearShore.get(key);
+  if (!near) {
+    near = s
+      .map(i => ({ i, d: Math.abs((i % COLS) - a.home.x) + Math.abs(((i / COLS) | 0) - a.home.y) * 2 }))
+      .sort((p, q) => p.d - q.d || p.i - q.i)
+      .slice(0, 5).map(o => o.i);
+    this.nearShore.set(key, near);
+  }
+  const i = near[Math.floor(a.r() * near.length)]!;
   return { x: i % COLS, y: (i / COLS) | 0 };
   }
 
@@ -813,7 +817,7 @@ export class Simulation {
         if (t) t.lastWater = tick;
         // planta uma flor do lado
         const fi = a.y * COLS + a.x + (a.r() < 0.5 ? -1 : 1);
-        if (this.terrain.T[fi] === Tile.Grass && !this.flower[fi]) this.flower[fi] = 1 + Math.floor(a.r() * FLOWERS.length);
+        if (this.terrain.T[fi] === Tile.Grass && !this.flower[fi]) { this.flower[fi] = 1 + Math.floor(a.r() * FLOWERS.length); this.groundVersion++; }
         if (a.friend && (t && this.tick - t.lastWater > 1000 ? a.r() < 0.5 : a.r() < 0.04)) this.note(`${a.name} regou a árvore${t && this.tick - t.lastWater > 1000 ? ' com sede' : ''} de ${a.friend.name}`, 'trabalho');
         return;
       }
@@ -929,7 +933,7 @@ export class Simulation {
     for (const i of this.trail) this.wear[i] = Math.max(this.wear[i]!, 6.5);
     for (let i = 0; i < N; i++) {
       if (this.wear[i]! > 0) { this.wear[i]! *= 0.945; if (this.wear[i]! < 0.05) this.wear[i] = 0; }
-      if (this.gardenCells.has(i)) continue;
+      if (this.gardenCells[i]) continue;
       if (!this.flower[i] && T[i] === Tile.Grass && this.wear[i]! >= (this.season === 3 ? 2 : 2.5) && this.wear[i]! < 6 && this.tick - this.lastV[i]! > 2400 && h32(i, this.tick, seed) % 1000 < (this.season === 3 ? 18 : 12)) {
         this.flower[i] = 1 + (h32(i, 7, seed) % FLOWERS.length);
         this.wear[i] = 0;
