@@ -2,11 +2,19 @@
   "repo": "strovertz/stargazzing",
   "seed": "strovertz/stargazzing",
   "timezoneOffsetHours": -3,
-  "generatedAt": "2026-11-25T00:54:06.000Z",
+  "generatedAt": "2026-11-25T01:29:38.000Z",
   "stargazers": [
     {
       "login": "strovertz",
       "starredAt": "2026-11-25T00:50:36.000Z"
+    },
+    {
+      "login": "JoaoManierii",
+      "starredAt": "2026-11-25T01:27:39.000Z"
+    },
+    {
+      "login": "Pedro-Porto",
+      "starredAt": "2026-11-25T01:28:59.000Z"
     }
   ]
 }
