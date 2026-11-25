@@ -67,7 +67,7 @@ export class Terrain {
       if (!((T[i] === Tile.Forest && roll % 100 < 9) || (T[i] === Tile.Grass && roll % 1000 < 6))) continue;
       if (this.wild.some(w => Math.abs(w.x - x) < 4 && Math.abs(w.y - y) < 3)) continue;
       if (this.plazas.some(p => Math.abs(p.x - x) < 10 && Math.abs(p.y - y) < 6)) continue;
-      this.wild.push({ x, y, big: h32(x, y, 9) % 3 > 0, sp: h32(x, y, 4) % 2 });
+      this.wild.push({ x, y, big: h32(x, y, 9) % 3 > 0, sp: h32(x, y, 4) % 3 });
       this.block[i] = 1;
     }
     // componente conexo a partir da praça principal

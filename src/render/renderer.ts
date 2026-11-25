@@ -1,9 +1,10 @@
 import { css, hex, mix, type RGB } from '../core/color';
 import { h32 } from '../core/rng';
-import { COLS, FLOWERS, N, ROWS, SPECIES, TICK_MS, Tile, WILD, type Species } from '../sim/constants';
+import { COLS, FLOWERS, N, ROWS, SPECIES, TICK_MS, Tile } from '../sim/constants';
 import { hourAt, isNight, stageOf, type Simulation } from '../sim/simulation';
 import type { Agent } from '../sim/types';
 import { spritesFor } from './sprites';
+import { clearTreeCache, treeSprite } from './trees';
 
 export const CW = 10;
 export const CH = 18;
@@ -12,17 +13,7 @@ export const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25, 1.6, 2];
 const GC: Record<number, RGB> = { 0: hex('#14395a'), 1: hex('#1f5c7c'), 2: hex('#9c8450'), 3: hex('#3c7a3a'), 4: hex('#245232'), 5: hex('#5d6068'), 6: hex('#6a6872'), 7: hex('#4a4850') };
 const TRAIL = hex('#7d6240'), G2 = hex('#4d8c3f'), DEEP = hex('#0e2a46'), PEAK = hex('#7b7f88');
 const GRASS = [',', "'", '"', '`', ',', "'"], GSH = ['#5fa04f', '#73b85c', '#8fd46c', '#a9e07e'], FSH = ['#2f6e3c', '#3b8248', '#4c9a55'], WSH = ['#3f88b8', '#5aa5d0', '#86c4e6'];
-const FLIPCH: Record<string, string> = { '/': '\\', '\\': '/', '▲': '▼', '^': 'v', n: 'u', _: '‾' };
 const lightAt = (h: number) => (h >= 7 && h < 17.5 ? 1 : h >= 19.5 || h < 5 ? 0.42 : h < 7 ? 0.42 + ((h - 5) / 2) * 0.58 : 1 - ((h - 17.5) / 2) * 0.58);
-
-type ArtCell = [number, number, string, number];
-function treeArt(sp: Species, stage: number): ArtCell[] {
-  const g = sp.g;
-  if (stage === 0) return [[0, 0, ',', 0]];
-  if (stage === 1) return [[0, 0, g, 0]];
-  if (stage === 2) return [[0, -2, g, 0], [-1, -1, g, 1], [0, -1, g, 0], [1, -1, g, 1], [0, 0, '|', 9]];
-  return [[-1, -3, g, 0], [0, -3, g, 1], [1, -3, g, 0], [-2, -2, g, 1], [-1, -2, g, 0], [0, -2, g, 1], [1, -2, g, 0], [2, -2, g, 1], [-1, -1, g, 0], [0, -1, g, 1], [1, -1, g, 0], [0, 0, '|', 9]];
-}
 
 /**
  * Render em duas camadas:
@@ -123,6 +114,7 @@ export class Renderer {
     this.actx.textAlign = 'center';
     this.actx.textBaseline = 'middle';
     this.amap.clear();
+    clearTreeCache();
     this.ax = 0;
     this.ay = 0;
     this.dirty = true;
@@ -165,7 +157,7 @@ export class Renderer {
   }
 
   drawScene(ts: number): void {
-    const sim = this.sim, { T, H, ruinCh, noise, wild } = sim.terrain, seed = sim.terrain.seed;
+    const sim = this.sim, { T, H, ruinCh, noise } = sim.terrain, seed = sim.terrain.seed;
     const { ox, oy, vw, vh } = this.view(), h = hourAt(sim.tick), rain = sim.isRain(), L = lightAt(h) * (rain ? 0.85 : 1);
     this.OX = ox; this.OY = oy;
     if (this.groundVersion !== sim.groundVersion) this.buildGround();
@@ -195,26 +187,7 @@ export class Renderer {
       else if (t === Tile.Floor && ruinCh[i] === '.') this.put('.', '#8c8996', x, y);
     }
     const inView = (x: number, y: number) => x >= x0 - 3 && x < x1 + 3 && y >= y0 - 1 && y < y1 + 4;
-    const drawTree = (tx: number, ty: number, sp: Species, stage: number, thirsty: boolean) => {
-      const art = treeArt(sp, stage), cols = thirsty ? ['#c9b35a', '#a8923f'] : sp.col;
-      let sh = -1;
-      for (let k = 1; k <= 3; k++) { const yy = ty + k; if (yy < ROWS && T[yy * COLS + tx]! <= Tile.Shallow) { sh = yy; break; } }
-      if (sh > 0) {
-        bx.globalAlpha = 0.3;
-        for (const [dx, dy, ch, ci] of art) {
-          const ry = sh + (sh - 1 - (ty + dy)), xx = tx + dx + Math.round(Math.sin(ts * 2 + ry) * 0.4);
-          if (ry < ROWS && xx >= 0 && xx < COLS && T[ry * COLS + xx]! <= Tile.Shallow) this.put(FLIPCH[ch] ?? ch, ci === 9 ? '#6b5a48' : '#5d9fb8', xx, ry);
-        }
-        bx.globalAlpha = 1;
-      }
-      for (const [dx, dy, ch, ci] of art) {
-        const xx = tx + dx, yy = ty + dy;
-        if (xx < 0 || yy < 0 || xx >= COLS) continue;
-        this.put(ch, ci === 9 ? '#8a6240' : cols[ci]!, xx, yy);
-      }
-    };
-    for (const w of wild) if (inView(w.x, w.y)) drawTree(w.x, w.y, w.sp ? SPECIES[1]! : WILD, w.big ? 3 : 2, false);
-    for (const t of sim.trees) if (inView(t.x, t.y)) drawTree(t.x, t.y, SPECIES[t.sp]!, stageOf(t), sim.tick - t.lastWater > 3000 && !rain);
+    for (const t of sim.trees) if (stageOf(t) === 0 && inView(t.x, t.y)) this.put(',', '#8fd46c', t.x, t.y);
     const evening = isNight(h) || h >= 19;
     for (const a of sim.agents) if (a.hut && inView(a.home.x - 1, a.home.y)) this.put('⌂', evening ? '#ffd36b' : '#e0a46a', a.home.x - 1, a.home.y);
     if (L < 1 || rain) {
@@ -239,21 +212,44 @@ export class Renderer {
     fx.clearRect(0, 0, VW, VH);
     fx.imageSmoothingEnabled = false;
     this.screen.clear();
-    const list = sim.agents.filter(a => a.present && a.x >= ox - 2 && a.x <= ox + vw + 2 && a.y >= oy - 2 && a.y <= oy + vh + 3).sort((a, b) => a.y - b.y);
+    const list = sim.agents.filter(a => a.present && a.x >= ox - 2 && a.x <= ox + vw + 2 && a.y >= oy - 2 && a.y <= oy + vh + 3);
+    // árvores visíveis (o tronco pode estar abaixo da tela enquanto a copa aparece)
+    type TreeDraw = { x: number; y: number; kind: string; variant: number; scale: number; thirsty: boolean };
+    const trees: TreeDraw[] = [];
+    const tIn = (x: number, y: number) => x >= ox - 4 && x <= ox + vw + 4 && y >= oy - 1 && y <= oy + vh + 11;
+    for (const w of sim.terrain.wild) if (tIn(w.x, w.y)) trees.push({ x: w.x, y: w.y, kind: ['mata-copa', 'mata-pinho', 'cipreste'][w.sp]!, variant: h32(w.x, w.y, 5) % 4, scale: w.big ? 1.1 : 0.75, thirsty: false });
+    for (const t of sim.trees) { const st = stageOf(t); if (st > 0 && tIn(t.x, t.y)) trees.push({ x: t.x, y: t.y, kind: SPECIES[t.sp]!.n, variant: h32(t.x, t.y, 5) % 4, scale: [0, 0.4, 0.7, 1][st]!, thirsty: sim.tick - t.lastWater > 3000 && !rain }); }
+    // sombras: direção e comprimento pela posição do sol
+    const sun = Math.max(-1, Math.min(1, (h - 12.5) / 6)), night = isNight(h) || h >= 19.5 || h < 6;
+    const shLen = night ? 0.25 : 0.35 + Math.abs(sun) * 0.9, shA = night ? 0.12 : rain ? 0.14 : 0.3;
+    fx.fillStyle = `rgba(0,0,0,${shA})`;
+    const sprites = trees.map(t => ({ t, spr: treeSprite(t.kind, t.variant, t.scale, t.thirsty, z, this.dpr, CW, CH) }));
+    for (const { t, spr } of sprites) {
+      const bxp = (t.x - ox + 0.5) * cs, byp = (t.y - oy + 1) * ch, len = spr.h * shLen;
+      fx.beginPath(); fx.ellipse(bxp + sun * len * 0.5, byp - ch * 0.2 + len * 0.12, spr.canopyW * 0.42 + Math.abs(sun) * len * 0.5, spr.canopyW * 0.2 + len * 0.08, 0, 0, 7); fx.fill();
+    }
+    for (const a of list) { fx.fillStyle = 'rgba(0,0,0,.3)'; const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)); fx.beginPath(); fx.ellipse((a.px + (a.x - a.px) * f - ox + 0.5) * cs, (a.py + (a.y - a.py) * f - oy + 1) * ch - 2 * z, 5 * sc, 1.6 * sc, 0, 0, 7); fx.fill(); }
+    // árvores e moradores na mesma ordem de profundidade (y)
+    type D = { y: number; draw: () => void };
+    const drawables: D[] = [];
+    for (const { t, spr } of sprites) {
+      const bxp = (t.x - ox + 0.5) * cs, byp = (t.y - oy + 1) * ch;
+      const wind = sim.terrain.noise(t.x * 0.06 - ts * 0.35, t.y * 0.12, ts * 0.05), sk = wind * 0.07 + Math.sin(ts * 1.7 + t.x) * 0.008;
+      drawables.push({ y: t.y + 0.01, draw: () => { fx.save(); fx.translate(bxp, byp); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h); fx.restore(); } });
+    }
     for (const a of list) {
       const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)), wx = a.px + (a.x - a.px) * f, wy = a.py + (a.y - a.py) * f, moving = f < 1;
       const p = { x: (wx - ox + 0.5) * cs, y: (wy - oy + 1) * ch };
       this.screen.set(a, p);
-      const spr = spritesFor(a.name, a.look), sleeping = a.phase === 'stay' && a.state === 'REST';
-      const fr = sleeping ? spr.sleep : moving && Math.floor((tf * 4) / a.pace) % 2 ? spr.step : spr.stand, bob = moving && fr === spr.step ? -sc : 0;
-      fx.fillStyle = 'rgba(0,0,0,.35)';
-      fx.beginPath(); fx.ellipse(p.x, p.y - 2 * z, 5 * sc, 1.6 * sc, 0, 0, 7); fx.fill();
-      fx.save();
-      fx.translate(p.x, p.y - 14 * sc - z + bob);
-      if (a.face < 0) fx.scale(-1, 1);
-      fx.drawImage(fr, -4 * sc, 0, 8 * sc, 14 * sc);
-      fx.restore();
+      drawables.push({ y: wy, draw: () => {
+        const spr = spritesFor(a.name, a.look), sleeping = a.phase === 'stay' && a.state === 'REST';
+        const fr = sleeping ? spr.sleep : moving && Math.floor((tf * 4) / a.pace) % 2 ? spr.step : spr.stand, bob = moving && fr === spr.step ? -sc : 0;
+        fx.save(); fx.translate(p.x, p.y - 14 * sc - z + bob); if (a.face < 0) fx.scale(-1, 1); fx.drawImage(fr, -4 * sc, 0, 8 * sc, 14 * sc); fx.restore();
+      } });
     }
+    drawables.sort((p, q) => p.y - q.y);
+    fx.imageSmoothingEnabled = false;
+    for (const d of drawables) d.draw();
     if (L < 1) { fx.globalCompositeOperation = 'source-atop'; fx.fillStyle = `rgba(8,12,40,${(1 - L) * 0.5})`; fx.fillRect(0, 0, VW, VH); fx.globalCompositeOperation = 'source-over'; }
     if (isNight(h) || h >= 20) {
       for (let k = 0; k < 40; k++) {
