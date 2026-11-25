@@ -22,15 +22,14 @@ import { encode, restore } from './sim/snapshot';
 import { loadSnap, saveSnap } from './core/store';
 import type { ReplayJob, ReplayMsg } from './sim/worker';
 import { Play, treasureFor } from './ui/play';
+import { highlightsSince, nextUp, renderAgenda, renderHistory, renderWeatherStrip } from './ui/chronicle';
 import { applyA11y, describeScene, loadA11y, PALETTES } from './ui/a11y';
 
 const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama', FARM: 'cuidando do trigo', SELL: 'vendendo na banca', BAKE: 'assando pão', MAIL: 'entregando cartas', CAMP: 'no acampamento' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
-/** ?t=21:30 mostra a vila nesse horário de hoje e segue andando a partir dele */
-let offset = 0;
-const clock = () => Date.now() + offset;
+const clock = () => Date.now();
 const params = new URLSearchParams(location.search);
 let sim: Simulation;
 let renderer: Renderer;
@@ -175,6 +174,8 @@ function updateCard(): void {
   cardSub[1].textContent = t ? `${sp.n}: ${['muda', 'broto', 'arbusto', 'árvore adulta'][stageOf(t)]}${sim.tick - t.lastWater > 3000 ? ', com sede' : ''}` : `${sp.n}, ainda não plantada`;
 }
 function renderStatus(): void {
+  const nu = nextUp(sim, t => fmt(sim.genesis + t * TICK_MS)), nb = $('nextUp');
+  nb.hidden = !nu; if (nb.textContent !== nu) nb.textContent = nu;
   $('clock').textContent = fmt(sim.genesis + sim.tick * TICK_MS);
   const h = hourAt(sim.tick), w = sim.weather();
   const sky = w.kind === 'limpo' ? 'céu limpo' : w.kind;
@@ -307,12 +308,15 @@ function drawMoon(ph: number, eclipse = false): void {
   g.fill();
 }
 
-let diaryKey = '';
+let diaryKey = '', wxKey = 0;
 function renderDiary(): void {
   if (!$('diaryDrawer').classList.contains('open')) return;
   const n = sim.stars, key = `${sim.log.length}|${n}|${sim.restored}`;
   if (key === diaryKey) return;
   diaryKey = key;
+  const ft = (t: number) => fmt(sim.genesis + t * TICK_MS);
+  renderAgenda(sim, $('agenda'), ft);
+  if (wxKey !== sim.genesis + Math.floor(sim.tick / 7200)) { wxKey = sim.genesis + Math.floor(sim.tick / 7200); renderWeatherStrip(sim, $('wxday')); renderHistory(world, $('history'), tz()); }
   const works = $('works'); works.textContent = '';
   for (const [kind, need] of NEEDS) {
     const li = document.createElement('li'), b = document.createElement('b'), st = document.createElement('span');
@@ -382,7 +386,7 @@ function loop(now: number): void {
   const idle = !follow && !timelapse.on && now - lastInput > 20_000;
   if (ready && !document.hidden && now - lastFrame >= (idle ? IDLE_MS : FRAME_MS)) {
     lastFrame = now;
-    simMs = clock(); // ao vivo: o mundo segue o relógio real (ou o horário do link ?t=)
+    simMs = clock(); // ao vivo: o mundo segue o relógio real
     sim.runUntil(sim.tickAt(simMs), 5000);
     if (Math.floor(sim.tick / CHECK_EVERY) > savedHour) { savedHour = Math.floor(sim.tick / CHECK_EVERY); checkpoint(); }
     const tf = (simMs - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;
@@ -396,7 +400,7 @@ function loop(now: number): void {
     if (renderer.dirty || now - lastScene > 100) { renderer.drawScene(ts); lastScene = now; }
     renderer.drawActors(tf, selected, hovered);
     tuneQuality(performance.now() - t0, now);
-    if (now - lastMini > 500) { renderer.drawMini(selected); lastMini = now; }
+    if (now - lastMini > 100) { renderer.drawMini(selected, now); lastMini = now; }
     if (now - lastUi > 1000) { gameTick(tf); renderer.boardPapers = boardNews(sim).count; renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
     if (amb.on && now - lastSound > 200) { updateSound(ts); lastSound = now; }
   }
@@ -462,7 +466,7 @@ function describe(): void {
 }
 /** Avisos curtos no canto da tela (figurinha nova, tesouro, desejo) */
 const toasts: string[] = [];
-let toastBusy = false;
+let toastBusy = false, toastSeq = 0;
 function toast(text: string): void {
   toasts.push(text);
   if (toastBusy) return;
@@ -470,24 +474,37 @@ function toast(text: string): void {
     const t = toasts.shift(), el = $('toast');
     if (!t) { toastBusy = false; el.hidden = true; return; }
     toastBusy = true; el.textContent = t; el.hidden = false;
-    setTimeout(next, 4200);
+    const my = ++toastSeq;
+    el.onclick = () => { if (my === toastSeq) next(); };
+    setTimeout(() => { if (my === toastSeq) next(); }, Math.min(12_000, 3500 + t.length * 45));
   };
   next();
 }
 const play = new Play(toast);
+// #album=código: junta o álbum trazido de outro aparelho e limpa o endereço
+{
+  const m = location.hash.match(/^#album=([0-9a-z-]+)$/i);
+  if (m) {
+    const n = play.importCode(m[1]!);
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => toast(n === null ? 'Esse código de álbum não é válido' : `Álbum juntado: ${n} figurinha${n === 1 ? '' : 's'} nova${n === 1 ? '' : 's'}`), 1500);
+  }
+}
 /** Uma vez por segundo: figurinhas, botão de desejo e hora da última visita. */
 function gameTick(tf: number): void {
   if (timelapse.on) return;
   play.check(sim);
   $('wish').hidden = !play.canWish(sim, tf) || document.body.classList.contains('embed');
-  if (offset === 0) play.markVisit(Date.now());
+  play.markVisit(Date.now());
 }
 /** "Desde a sua última visita": resumo do morador favorito quando a pessoa volta. */
 function welcomeBack(): void {
   const fav = play.favorite(), a = fav ? sim.agents.find(x => x.name === fav) : undefined, last = play.lastVisit();
-  if (!a || offset !== 0 || Date.now() - last < 10 * 60_000) return;
+  if (!last || Date.now() - last < 10 * 60_000) return;
   const since = last >= sim.genesis ? `desde as ${fmt(last)}` : 'hoje';
-  toast(`♥ ${a.name} ${since}: ${play.sinceLast(sim, a).join(' · ')}`);
+  const vila = highlightsSince(sim.log, Math.max(0, Math.floor((last - sim.genesis) / TICK_MS)), sim.tick);
+  if (vila.length) toast(`Enquanto você esteve fora (${since}): ${vila.join(' · ')}`);
+  if (a) toast(`♥ ${a.name} ${since}: ${play.sinceLast(sim, a).join(' · ')}`);
 }
 const timelapse = new Timelapse($('timelapse'));
 const houseView = new HouseView($('houseView'));
@@ -528,10 +545,10 @@ function bind(): void {
   cbB.addEventListener('change', () => { opt.big = cbB.checked; applyA11y(opt); });
   sel.addEventListener('change', () => { opt.palette = sel.value as typeof opt.palette; applyA11y(opt); });
   $('describe').addEventListener('click', describe);
+  $('nextUp').addEventListener('click', () => { diaryKey = ''; wxKey = 0; openDrawer('diaryDrawer'); renderDiary(); });
   $('openAlbum').addEventListener('click', () => { openDrawer('albumDrawer'); play.renderAlbum($('album')); });
   $('wish').addEventListener('click', () => { play.wish(sim); $('wish').hidden = true; renderer.releaseLantern(clock() / 1000 - sim.genesis / 1000); });
   $('openRank').addEventListener('click', () => { openDrawer('rankDrawer'); renderRank(); });
-  $('liveBack').addEventListener('click', () => { offset = 0; $('liveBar').hidden = true; history.replaceState(null, '', location.pathname); start(); });
   for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true });
   // aba escondida: o laço para; ao voltar depois de muito tempo (ou noutro dia), retoma do checkpoint
   document.addEventListener('visibilitychange', () => {
@@ -628,12 +645,20 @@ function bind(): void {
     fg.classList.remove('dragging');
   });
   fg.addEventListener('pointerleave', () => { hovered = null; });
-  $('mini').addEventListener('click', e => {
-    const r = $('mini').getBoundingClientRect();
+  // minimapa: clicar leva até o ponto, arrastar move a câmera junto
+  const mini = $('mini');
+  let miniDrag = false;
+  const miniGo = (e: PointerEvent) => {
+    const r = mini.getBoundingClientRect();
     renderer.cam = { x: ((e.clientX - r.left) / r.width) * COLS, y: ((e.clientY - r.top) / r.height) * ROWS };
     follow = false;
     renderer.clampCam();
-  });
+    renderer.drawMini(selected);
+  };
+  mini.addEventListener('pointerdown', e => { miniDrag = true; mini.setPointerCapture(e.pointerId); miniGo(e); });
+  mini.addEventListener('pointermove', e => { if (miniDrag) miniGo(e); });
+  mini.addEventListener('pointerup', () => { miniDrag = false; });
+  mini.addEventListener('pointercancel', () => { miniDrag = false; });
 }
 
 /** Confere o formato do repo.json antes de usar: só passa o que tem o tipo certo. */
@@ -666,13 +691,6 @@ async function boot(): Promise<void> {
   $('dataNote').textContent = `${n} stargazer${n === 1 ? '' : 's'} reais de ${world.repo}` +
     (world.generatedAt ? `, lidos em ${new Date(world.generatedAt).toLocaleString('pt-BR')}.` : '.') +
     ' A lista é atualizada a cada star nova e a cada 30 minutos.';
-  const t = params.get('t')?.match(/^(\d{1,2}):(\d{2})$/);
-  if (t && +t[1]! < 24 && +t[2]! < 60) {
-    const g = genesisFor(Date.now(), world.timezoneOffsetHours);
-    offset = g + (+t[1]! * 60 + +t[2]!) * 60_000 - Date.now();
-    $('liveTxt').textContent = `Vendo a vila às ${t[1]!.padStart(2, '0')}:${t[2]} de hoje`;
-    $('liveBar').hidden = false;
-  }
   if (params.has('embed')) {
     document.body.classList.add('embed');
     const l = $<HTMLAnchorElement>('embedLink'); l.href = `${location.origin}${import.meta.env.BASE_URL}`; l.hidden = false;

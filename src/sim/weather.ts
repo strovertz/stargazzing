@@ -34,3 +34,10 @@ export function lightningAt(ts: number, seed: number): number {
   if (h32(k, 77, seed) % 14 !== 0) return 0;
   return f < 0.08 ? 1 : f < 0.16 ? 0.25 : f < 0.24 ? 0.8 : Math.max(0, 0.8 - (f - 0.24) * 3);
 }
+
+/** Trégua: em hora de compromisso marcado a chuva para e a tempestade passa longe. */
+export function truce(w: Weather): Weather {
+  const rain = Math.min(w.rain, 0.1), cloud = Math.min(w.cloud, 0.62), wind = Math.min(w.wind, 0.6);
+  const kind: WeatherKind = w.fog > 0.35 ? 'neblina' : cloud > 0.55 ? 'nublado' : 'limpo';
+  return { cloud, rain, fog: w.fog, wind, storm: false, kind };
+}

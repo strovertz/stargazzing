@@ -68,6 +68,7 @@ No site, o botão **Cartão p/ README** no card de cada morador já copia o mark
 | **Tempo que muda o mapa** | Poças e riacho cheio depois da chuva, flores murchas na seca, folhas caindo no outono e lagos congelados no inverno. |
 | **A ponte** | Com 60 stars a vila conserta a ponte do riacho, e do outro lado aparece um mirante. |
 | **Quem tirou a star** | A casa fica vazia, com uma plaquinha "aqui morou". |
+| **Agenda garantida** | Conselho (quarta 19h), corrida de vaga-lumes (sexta 20h) e festas têm hora marcada: a vila toda vai para a ágora e o tempo dá trégua, então quem estiver acompanhando sempre vê o evento. |
 | **Mutirão** | Na tempestade, um raio pode acertar uma árvore. Os vizinhos correm com baldes, apagam o fogo e replantam uma muda no lugar. |
 
 <table>
@@ -108,8 +109,8 @@ Quer pedir algo para a vila? [Abra uma issue](https://github.com/strovertz/starg
 | Botão **foto** | Baixa um PNG da cena, sem a interface, com legenda |
 | Botão **Timelapse** | Mostra a vila nascendo, star por star |
 | Botão **♪** | Som ambiente sintetizado: vento, chuva, grilos, fogueira e um alaúde que toca a melodia da noite (a mesma para todo mundo) |
-| `?t=21:30` na URL | Abre a vila nesse horário de hoje (link para mostrar a noite a alguém) |
-| Botão **Álbum** / tecla `A` | Figurinhas dos eventos raros que você viu: eclipse, aurora, festas, peixe dourado, cavaleiro... |
+| Chip do próximo compromisso (topo) | Abre o Diário com a agenda do dia, o clima hora a hora, as obras, o que aconteceu hoje e a história da vila |
+| Botão **Álbum** / tecla `A` | Figurinhas dos eventos raros que você viu: eclipse, aurora, festas, conselho, peixe dourado, cavaleiro... Um código curto (ou link `#album=`) leva o álbum para outro aparelho, sem login |
 | X no mapa | Todo dia tem um X de tesouro escondido, no mesmo lugar para todo mundo. Clique (ou tecle `X` quando ele estiver na tela) para cavar |
 | ✦ fazer um pedido | Aparece quando passa uma estrela cadente |
 | ♡ favoritar | No card do morador. Quando você volta, um aviso conta o que ele fez desde a sua última visita |
@@ -195,7 +196,7 @@ Cada star nova dispara o deploy pelo evento `watch` e entra no `world.json` na h
 - The village keeps growing: friendships and rivalries, couples living side by side, aging, a weekly council, a predator-prey ecosystem, lightning fires put out by bucket brigades, a white stag on full-moon nights and a hidden temple unlocked at 25 stars.
 - Forks camp with horses and ride to the agora, `recado` issues become notes on doors, 👍 on a `pedido` is a vote, releases bring fireworks and merged PRs earn a builder's hat.
 - Talk to villagers, read the notice board, find the daily treasure X, collect stickers of rare events (real meteor showers and eclipses), wish on shooting stars and follow a favorite villager.
-- `?t=21:30` opens the village at that time, `?embed` gives a map-only iframe, `/m/<login>/` is a public read-only page per villager, and the diary is published as `feed.json` / `feed.xml`.
+- `?embed` gives a map-only iframe, `/m/<login>/` is a public read-only page per villager, and the diary is published as `feed.json` / `feed.xml`.
 - Accessibility: high contrast, large text, map palettes and a screen-reader scene description (key `S`).
 - Get your own animated README card at `https://strovertz.github.io/stargazzing/cards/<your-login>.svg`.
 

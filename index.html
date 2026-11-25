@@ -25,7 +25,8 @@
   <canvas id="fg" aria-label="Mundo animado dos stargazers. Arraste para mover, role para dar zoom. Aperte S para ouvir a descrição da cena."></canvas>
   <div class="hud glass">
     <h1>Stargazzing</h1>
-    <div class="row" aria-live="polite"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt moon"><canvas id="moon" width="32" height="32" aria-hidden="true"></canvas><em id="moonTxt"></em> · <em id="season"></em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
+    <div class="row"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt moon"><canvas id="moon" width="32" height="32" aria-hidden="true"></canvas><em id="moonTxt"></em> · <em id="season"></em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
+    <button class="next" id="nextUp" hidden title="Ver a agenda do dia"></button>
   </div>
   <div class="tools">
     <div class="seg glass"><button id="sound" aria-pressed="false" aria-label="Ligar som ambiente" title="Som ambiente">♪ off</button><button id="photo" aria-label="Tirar foto do mundo" title="Modo foto">foto</button></div>
@@ -34,12 +35,12 @@
   <div class="mini glass"><canvas id="mini" width="384" height="112" aria-label="Minimapa: clique para ir até o ponto"></canvas></div>
   <div class="hint glass" id="hint">Arraste para andar pelo mapa · role para zoom · clique num morador ou numa casa</div>
   <div class="fabs">
-    <button class="fab glass" id="openHow">Como funciona</button>
-    <button class="fab glass" id="openTimelapse">Timelapse</button>
-    <button class="fab glass" id="openRank">Ranking</button>
-    <button class="fab glass" id="openAlbum">Álbum</button>
-    <button class="fab glass" id="openDiary">Diário</button>
-    <button class="fab gold" id="openPlayers">Players <span class="n" id="nBadge">0</span></button>
+    <button class="fab glass" id="openHow" aria-label="Como funciona" title="Como funciona (C)">?</button>
+    <button class="fab glass" id="openTimelapse" title="Timelapse (T)">Timelapse</button>
+    <button class="fab glass" id="openRank" title="Ranking (R)">Ranking</button>
+    <button class="fab glass" id="openAlbum" title="Álbum (A)">Álbum</button>
+    <button class="fab glass" id="openDiary" title="Diário (D)">Diário</button>
+    <button class="fab gold" id="openPlayers" title="Players (P)">Players <span class="n" id="nBadge">0</span></button>
   </div>
   <aside class="drawer glass" id="rankDrawer" aria-label="Ranking e estatísticas" aria-hidden="true">
     <h2>Ranking <button data-close aria-label="Fechar">×</button></h2>
@@ -47,12 +48,11 @@
   </aside>
   <aside class="drawer glass" id="albumDrawer" aria-label="Álbum de figurinhas" aria-hidden="true">
     <h2>Álbum de f&zwnj;igurinhas <button data-close aria-label="Fechar">×</button></h2>
-    <p class="bio">Cada evento raro que você presenciar aqui vira figurinha. Todo dia tem um X escondido no mapa: clique nele para cavar. O álbum fica só no seu navegador.</p>
+    <p class="bio">Cada evento raro que você presenciar aqui vira figurinha. Todo dia tem um X escondido no mapa: clique nele para cavar. O álbum fica neste navegador; no fim da página há um código para levar a outro aparelho.</p>
     <div id="album"></div>
   </aside>
   <button class="wish glass" id="wish" hidden aria-label="Fazer um pedido para a estrela cadente">✦ fazer um pedido</button>
   <div class="toast glass" id="toast" hidden role="status" aria-live="polite"></div>
-  <div class="live glass" id="liveBar" hidden><span id="liveTxt"></span> <button id="liveBack">voltar ao vivo</button></div>
   <a class="embedLink glass" id="embedLink" hidden target="_blank" rel="noopener">Stargazzing ↗</a>
   <aside class="drawer glass" id="howDrawer" aria-label="Como funciona" aria-hidden="true">
     <h2>Como funciona <button data-close aria-label="Fechar">×</button></h2>
@@ -100,9 +100,11 @@
       <li><b>Festas e céu.</b> Solstícios, equinócios, colheita, aniversário de vila e fogos em release nova. Chuvas de meteoros e eclipses nas datas reais, aurora rara no inverno.</li>
       <li><b>Tempo que muda o mapa.</b> Poças e riacho cheio depois da chuva, flores murchas na seca, folhas no outono e lagos congelados no inverno. Com 60 stars a ponte é consertada e surge um mirante. Quem tirou a star deixa a casa vazia com uma plaquinha.</li>
       <li><b>Forks a cavalo.</b> Cada fork monta acampamento com barraca, cavalos, carroça e um bicho; à noite o dono toca viola e às vezes cavalga até a ágora. Issues com a label <i>recado</i> viram bilhete na porta, 👍 num <i>pedido</i> é voto e PR aceito dá capacete de construtor.</li>
-      <li><b>Jogo leve.</b> Todo dia há um X de tesouro escondido no mapa (clique ou tecle X). O Álbum (tecla A) guarda figurinhas dos eventos raros que você viu; quando passa uma estrela cadente aparece "fazer um pedido"; favorite um morador e, na volta, veja o que ele fez. Tudo fica só no seu navegador.</li>
+      <li><b>Jogo leve.</b> Todo dia há um X de tesouro escondido no mapa (clique ou tecle X). O Álbum (tecla A) guarda figurinhas dos eventos raros que você viu; quando passa uma estrela cadente aparece "fazer um pedido"; favorite um morador e, na volta, veja o que ele fez. O álbum fica no seu navegador, e um código curto (ou link) leva ele para outro aparelho, sem login.</li>
+      <li><b>Agenda garantida.</b> Conselho na quarta às 19h, corrida de vaga-lumes na sexta às 20h e as festas do dia têm horário fixo: na hora certa a vila inteira vai para a ágora e o tempo dá uma trégua (sem tempestade). O próximo compromisso aparece no topo; clique nele para ver a agenda, o clima hora a hora e a história da vila.</li>
+      <li><b>Acompanhar.</b> No Diário: agenda de hoje com contagem regressiva, clima de cada hora do dia, obras, o que já aconteceu hoje e a história da vila (stars por dia, marcos, releases, forks e pedidos atendidos). Ao voltar, um aviso resume o que aconteceu enquanto você esteve fora.</li>
       <li><b>Atalhos.</b> Q quadro, P players, D diário, R ranking, A álbum, C como funciona, T timelapse, F foto, M som, V vitrine (tela cheia com câmera passeando), S descrever a cena, L lanterna, + e − zoom.</li>
-      <li><b>Links.</b> <code>?t=21:30</code> abre a vila nesse horário, <code>?embed</code> mostra só o mapa para pôr num iframe, <code>/m/login/</code> é a página pública de cada morador, e o diário sai em <code>feed.json</code> e <code>feed.xml</code>.</li>
+      <li><b>Links.</b> <code>?embed</code> mostra só o mapa para pôr num iframe, <code>/m/login/</code> é a página pública de cada morador, e o diário sai em <code>feed.json</code> e <code>feed.xml</code>.</li>
       <li><b>Relógio determinístico.</b> 1 tick = 0,5 s. Ao abrir, o site refaz o dia desde a meia-noite até agora num worker e guarda um checkpoint por hora no navegador. Todo mundo vê a mesma cena.</li>
     </ol>
     <h3>Por que roda leve</h3>
@@ -112,10 +114,16 @@
   </aside>
   <aside class="drawer glass" id="diaryDrawer" aria-label="Diário da vila" aria-hidden="true">
     <h2>Diário da vila <button data-close aria-label="Fechar">×</button></h2>
+    <h3>Agenda de hoje</h3>
+    <div id="agenda"></div>
+    <h3>Clima hora a hora</h3>
+    <div id="wxday"></div>
     <h3>Obras</h3>
     <ul class="works" id="works"></ul>
     <h3>Hoje</h3>
     <ol class="diary" id="diary"></ol>
+    <h3>História da vila</h3>
+    <div id="history"></div>
   </aside>
   <aside class="drawer glass" id="playersDrawer" aria-label="Players" aria-hidden="true">
     <h2>Players <button data-close aria-label="Fechar">×</button></h2>

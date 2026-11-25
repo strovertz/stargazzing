@@ -44,6 +44,10 @@ export class Renderer {
   private readonly bx: CanvasRenderingContext2D;
   private readonly fx: CanvasRenderingContext2D;
   private readonly mx: CanvasRenderingContext2D;
+  private miniCv!: HTMLCanvasElement;
+  private miniImg: ImageData | null = null;
+  private miniBuilt = 0;
+  private miniKey = '';
   private readonly dark = document.createElement('canvas');
   private readonly dx: CanvasRenderingContext2D;
   private readonly mini = document.createElement('canvas');
@@ -83,8 +87,8 @@ export class Renderer {
   constructor(private readonly bgc: HTMLCanvasElement, private readonly fgc: HTMLCanvasElement, miniCanvas: HTMLCanvasElement, public sim: Simulation) {
     this.bx = bgc.getContext('2d')!;
     this.fx = fgc.getContext('2d')!;
-    this.mx = miniCanvas.getContext('2d')!;
-    miniCanvas.width = COLS; miniCanvas.height = ROWS;
+    this.mx = miniCanvas.getContext('2d', { alpha: false })!;
+    this.miniCv = miniCanvas;
     this.dx = this.dark.getContext('2d')!;
     this.mini.width = COLS;
     this.mini.height = ROWS;
@@ -216,7 +220,7 @@ export class Renderer {
   }
 
   private buildMini(): void {
-    const g = this.mini.getContext('2d')!, img = g.createImageData(COLS, ROWS), d = img.data, { T } = this.sim.terrain;
+    const g = this.mini.getContext('2d')!, img = this.miniImg ??= g.createImageData(COLS, ROWS), d = img.data, { T } = this.sim.terrain;
     for (let i = 0; i < N; i++) {
       let c = MINI[T[i]!]!;
       if (this.sim.terrain.deco[i] === 6) c = mix(c, hex('#000000'), 0.55);
@@ -1099,17 +1103,32 @@ export class Renderer {
     }
   }
 
-  drawMini(selected: Agent | null): void {
-    if (this.miniVersion !== this.sim.groundVersion) this.buildMini();
-    const mx = this.mx;
-    mx.imageSmoothingEnabled = false;
-    mx.drawImage(this.mini, 0, 0);
+  /**
+   * Minimapa em duas camadas: o chão (refeito no máximo a cada 4 s, sem alocar) e por cima
+   * só pontos e o retângulo da câmera. Só redesenha quando algo mudou, então pode rodar todo quadro.
+   */
+  drawMini(selected: Agent | null, now = performance.now()): void {
+    const cv = this.miniCv, r = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.round((cv.clientWidth || 260) * r), H = Math.round((cv.clientHeight || 76) * r);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; this.miniKey = ''; }
+    const stale = this.miniVersion !== this.sim.groundVersion;
+    if (stale && (this.miniVersion < 0 || now - this.miniBuilt > 4000)) { this.buildMini(); this.miniBuilt = now; this.miniKey = ''; }
+    const { ox, oy, vw, vh } = this.view(), sim = this.sim;
+    let key = `${ox.toFixed(2)},${oy.toFixed(2)},${vw.toFixed(1)},${selected?.name ?? ''},${this.miniVersion}`;
+    for (const a of sim.agents) if (a.present) key += `${a.x},${a.y};`;
+    if (key === this.miniKey) return;
+    this.miniKey = key;
+    const mx = this.mx, kx = W / COLS, ky = H / ROWS, dot = Math.max(2, Math.round(2.4 * kx));
+    mx.imageSmoothingEnabled = kx < 1;
+    mx.drawImage(this.mini, 0, 0, W, H);
     mx.fillStyle = '#ff9a3c';
-    for (const p of this.sim.terrain.plazas) mx.fillRect(p.x - 1, p.y - 1, 3, 3);
+    for (const p of sim.terrain.plazas) mx.fillRect((p.x - 1) * kx, (p.y - 1) * ky, 3 * kx, 3 * ky);
     mx.fillStyle = '#e8dec4';
-    for (const l of this.sim.terrain.landmarks) if (l.kind !== 'barraca') mx.fillRect(l.x, l.y - 1, Math.max(2, l.w), 2);
-    for (const a of this.sim.agents) { if (!a.present) continue; mx.fillStyle = a === selected ? '#f2c14e' : css(a.col); mx.fillRect(a.x - 1, a.y - 1, 3, 3); }
-    const { ox, oy, vw, vh } = this.view();
-    mx.strokeStyle = 'rgba(255,255,255,.85)'; mx.lineWidth = 1; mx.strokeRect(ox + 0.5, oy + 0.5, vw, vh);
+    for (const l of sim.terrain.landmarks) if (l.kind !== 'barraca') mx.fillRect(l.x * kx, (l.y - 1) * ky, Math.max(2, l.w) * kx, 2 * ky);
+    for (const a of sim.agents) { if (!a.present || a === selected) continue; mx.fillStyle = css(a.col); mx.fillRect(a.x * kx - dot / 2, a.y * ky - dot / 2, dot, dot); }
+    if (selected?.present) { mx.fillStyle = '#f2c14e'; mx.fillRect(selected.x * kx - dot, selected.y * ky - dot, dot * 2, dot * 2); }
+    mx.strokeStyle = 'rgba(255,255,255,.9)'; mx.lineWidth = Math.max(1, r);
+    mx.strokeRect(Math.round(ox * kx) + 0.5, Math.round(oy * ky) + 0.5, Math.round(vw * kx), Math.round(vh * ky));
   }
+
 }

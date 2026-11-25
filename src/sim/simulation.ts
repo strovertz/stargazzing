@@ -6,7 +6,7 @@ import { affinity, commitBias, COUPLE_AT, ecosystem, FRIEND_AT, isFullMoon, merc
 import { age, lookFrom, profOf } from './look';
 import { CROPS, cropOf, growth, WHEAT_EPOCH, WHEAT_TARGET, type Growth } from './farm';
 import { Terrain } from './world';
-import { weatherAt, type Weather } from './weather';
+import { truce, weatherAt, type Weather } from './weather';
 import { lanternSpots, planVillage, STARS_PER_COLUMN, type Structure } from './village';
 import type { Agent, AgentMeta, LogEntry, Plaza, Point, RepoData, State, Tree, WorldFile } from './types';
 
@@ -24,6 +24,8 @@ export interface ForkCamp {
 }
 export interface Camper { x: number; y: number; face: 1 | -1; riding: boolean; asleep: boolean; atFire: boolean }
 export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number; votes: number }
+/** Compromisso marcado na agenda do dia. call: a vila toda vai para a ágora; truce: o tempo dá uma trégua. */
+export interface Scheduled { name: string; kind: 'conselho' | 'vaga-lumes' | 'feira' | 'mercador' | Festival['kind']; from: number; to: number; call: boolean }
 export interface Festival { name: string; kind: 'colheita' | 'solstício' | 'equinócio' | 'versão' | 'aniversário'; from: number; to: number }
 /** Com 60 stars a vila conserta a ponte do riacho e abre o mirante do outro lado. */
 export const BRIDGE_AT = 60;
@@ -31,6 +33,8 @@ export const BRIDGE_AT = 60;
 const RIDE_STEP = 5;
 
 const WED = 3;
+/** moradores que ganharam um pet de presente (espécie e nome continuam sorteados pelo login) */
+const PET_GIFTS = new Set(['leticiabn', 'lfelipediniz']);
 const DX8 = Int8Array.from(DIR8, d => d[0]), DY8 = Int8Array.from(DIR8, d => d[1]);
 
 export const hourAt = (t: number) => ((t * TICK_MS) / 3_600_000) % 24;
@@ -195,6 +199,7 @@ export class Simulation {
     this.sky = skyEventFor(genesis, world.timezoneOffsetHours ?? -3, this.season, this.terrain.seed);
     this.placeBridge();
     this.planMerchant();
+    this.planAgenda();
     // votação mais recente do conselho (quarta, 19h30) vale até a próxima
     this.applyVote(this.weekOf(0), false);
     this.updateVillage(false);
@@ -457,6 +462,21 @@ export class Simulation {
     if (this.festivalAt(t)) return true;
     return this.requests.some(q => q.state === 'closed' && q.closedAt !== undefined && ms >= q.closedAt && ms < q.closedAt + 3 * 3_600_000);
   }
+  /** Agenda do dia: conselho, corrida de vaga-lumes, feira, mercador e festas, com horário fixo. */
+  agenda: Scheduled[] = [];
+  private planAgenda(): void {
+    const at = (h: number) => Math.round(h * TICKS_PER_HOUR), A = this.agenda;
+    if (this.weekday === 0 || this.weekday === 6) A.push({ name: 'Feira na ágora', kind: 'feira', from: at(9), to: at(17), call: false });
+    if (this.merchantPath.length) A.push({ name: `Mercador ${this.merchant} de passagem`, kind: 'mercador', from: at(9), to: at(17), call: false });
+    if (this.weekday === WED) A.push({ name: 'Conselho da vila na ágora', kind: 'conselho', from: at(19), to: at(20), call: true });
+    if (this.weekday === 5) A.push({ name: 'Corrida de vaga-lumes', kind: 'vaga-lumes', from: at(20), to: at(21), call: true });
+    for (const f of this.festivals) A.push({ name: f.name, kind: f.kind, from: f.from, to: f.to, call: true });
+    A.sort((p, q) => p.from - q.from);
+    this.wTick = -1;
+  }
+  /** Compromisso que chama a vila para a ágora agora (o tempo dá trégua meia hora antes até o fim). */
+  calledAt(t = this.tick): Scheduled | null { for (const e of this.agenda) if (e.call && t >= e.from && t < e.to) return e; return null; }
+  private truceAt(t: number): boolean { for (const e of this.agenda) if (e.call && t >= e.from - TICKS_PER_HOUR / 2 && t < e.to) return true; return false; }
   /** Conselho: quarta das 19h às 20h. */
   isCouncil(t = this.tick): boolean { const h = hourAt(t); return this.weekday === WED && h >= 19 && h < 20; }
 
@@ -525,7 +545,8 @@ export class Simulation {
   /** Clima do tick (guardado: decide() consulta muitas vezes por tick). */
   weather(t = this.tick): Weather {
     if (t === this.wTick) return this.wNow;
-    const w = weatherAt(this.terrain.noise, (this.genesis + t * TICK_MS) / 3_600_000, hourAt(t), this.bias);
+    let w = weatherAt(this.terrain.noise, (this.genesis + t * TICK_MS) / 3_600_000, hourAt(t), this.bias);
+    if (this.agenda.length && this.truceAt(t)) w = truce(w);
     if (t === this.tick) { this.wTick = t; this.wNow = w; }
     return w;
   }
@@ -576,6 +597,12 @@ export class Simulation {
     if (t === Math.round(9 * TICKS_PER_HOUR) && this.merchantPath.length) this.note(`O mercador ${this.merchant} chegou pelo oeste com sua carroça`, 'github');
     if (t === Math.round(0.75 * TICKS_PER_HOUR) && this.deerAt(t)) this.note('Lua cheia: alguém jura ter visto o cervo branco entre as árvores', 'lenda');
     for (const k of this.forks) if (k.path.length && t === Math.round(k.leave * TICKS_PER_HOUR + (k.path.length - 1) * RIDE_STEP) && !this.weather(t).storm) this.note(`${k.login} chegou a cavalo do acampamento e amarrou o ${['baio', 'branco', 'preto'][k.horses[0]!]} perto da ágora`, 'github');
+    // compromisso marcado: na hora certa todo mundo que está na vila larga o que faz e vai para a ágora
+    for (const e of this.agenda) if (e.call && t === e.from) {
+      const wet = [e.from - TICKS_PER_HOUR / 2, e.from, (e.from + e.to) / 2, e.to - 1].some(u => weatherAt(this.terrain.noise, (this.genesis + u * TICK_MS) / 3_600_000, hourAt(u), this.bias).rain > 0.3);
+      if (wet) this.note(`A chuva deu uma trégua para ${e.kind === 'conselho' ? 'o conselho' : e.kind === 'vaga-lumes' ? 'a corrida de vaga-lumes' : 'a festa'}`, 'clima');
+      for (const a of this.agents) if (a.present && !a.inside && a.state !== 'ARRIVE' && a.state !== 'PLANT' && a.state !== 'BUCKET' && a.state !== 'AGORA') this.decide(a);
+    }
     for (const f of this.festivals) if (t === f.from) this.note(`${f.name} na ágora!${f.kind === 'versão' ? ' Fogos no céu' : f.kind === 'colheita' ? ' Pão quente para todo mundo' : ' Lanternas acesas até tarde'}`, 'evento');
     for (const q of this.requests) {
       if (q.state !== 'closed' || q.closedAt === undefined) continue;
@@ -638,7 +665,7 @@ export class Simulation {
       dir: Math.floor(r() * 4), steps: 0, boidLeft: 0, mv: [0, 0], tree: null, friend: null, plaza: null, bubble: '', bubbleUntil: 0, hut: false,
       home: { x: 0, y: 0 }, chatAt: -9999, friends: [], rivals: [], partner: null, inside: false, crystals: 0, items: [], house: 0,
       instrument: fnv(name.toLowerCase() + '#inst') % INSTRUMENTS.length,
-      pet: fnv(name.toLowerCase() + '#pet') % 3 === 0 ? { kind: fnv(name.toLowerCase() + '#petk') % PETS.length, name: PET_NAMES[fnv(name.toLowerCase() + '#petn') % PET_NAMES.length]! } : null,
+      pet: fnv(name.toLowerCase() + '#pet') % 3 === 0 || PET_GIFTS.has(name.toLowerCase()) ? { kind: fnv(name.toLowerCase() + '#petk') % PETS.length, name: PET_NAMES[fnv(name.toLowerCase() + '#petn') % PET_NAMES.length]! } : null,
       prof: profOf(name), owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
     };
     a.home = this.pickHome(a, mate?.home);
@@ -839,7 +866,7 @@ export class Simulation {
     const storm = wx.storm ? 1 : 0, fog = wx.fog > 0.35 ? 1 : 0, day = h >= 7 && h < 18;
     const thirsty = !!a.tree && this.tick - a.tree.lastWater > 1600;
     const prof = PROFS[a.prof], owl = a.owl ? 1 : 0, late = h >= 22 || h < 5, out = (1 - storm) * (rain ? 0.3 : 1), fair = this.isFair() ? 1 : 0;
-    const council = this.isCouncil() ? 1 : 0, party = this.isParty() ? 1 : 0, fire = this.fire;
+    const council = this.isCouncil() ? 1 : 0, party = this.isParty() ? 1 : 0, fire = this.fire, called = this.calledAt() ? 1 : 0;
     const cave = this.terrain.landmarks.find(l => l.kind === 'caverna'), board = this.requests.some(q => q.state === 'open');
     const w: [State, number][] = [
       ['WANDER', (0.4 + a.traits.wander * 1.2) * (night ? 0.25 : 1) * (fog ? 0.5 : 1) * (storm ? 0.05 : 1)],
@@ -848,7 +875,7 @@ export class Simulation {
       ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1) * (storm ? 0.05 : 1)],
       ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : late && owl ? 2 : 0.35) * (rain ? 0.2 : 1) * (1 - storm)],
       ['FISH', (prof === 'pescador' ? 0.8 : 0.15) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1)],
-      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day || council || party ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm) * (fair ? 2.5 : 1) * (party ? 3 : 1) + council * 9 * (1 - storm)],
+      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day || council || party ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm) * (fair ? 2.5 : 1) * (party ? 3 : 1) + council * 9 * (1 - storm) + called * 60],
       ['MINE', prof === 'minerador' && day && cave ? 1.1 * (1 - storm) : 0],
       ['TASK', board && day ? (0.12 + a.traits.social * 0.2) * out : 0],
       ['BUCKET', fire && Math.abs(fire.x - a.x) < 90 && Math.abs(fire.y - a.y) < 45 ? 40 : 0],
