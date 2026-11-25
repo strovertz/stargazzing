@@ -12,11 +12,22 @@ import type { Agent, AgentMeta, LogEntry, Plaza, Point, RepoData, State, Tree, W
 /** Fogo de raio numa árvore: some com o mutirão dos baldes e vira muda replantada. */
 export interface Fire { x: number; y: number; hp: number; start: number; out: number }
 /** Acampamento de quem fez fork, na borda do mapa. */
-export interface ForkCamp { login: string; x: number; y: number }
+export interface ForkCamp {
+  login: string; x: number; y: number;
+  /** caminho do acampamento até a ágora (o cavaleiro vai e volta por ele) */
+  path: number[];
+  /** cor de cada cavalo (0 baio, 1 branco, 2 preto) e o outro bicho do acampamento */
+  horses: number[]; pet: 'cabra' | 'cachorro' | 'galinha';
+  /** hora em que sai a cavalo para a ágora */
+  leave: number;
+}
+export interface Camper { x: number; y: number; face: 1 | -1; riding: boolean; asleep: boolean; atFire: boolean }
 export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number; votes: number }
 export interface Festival { name: string; kind: 'colheita' | 'solstício' | 'equinócio' | 'versão'; from: number; to: number }
 /** Com 60 stars a vila conserta a ponte do riacho e abre o mirante do outro lado. */
 export const BRIDGE_AT = 60;
+/** ticks por célula do cavaleiro (trote) */
+const RIDE_STEP = 5;
 
 const WED = 3;
 const DX8 = Int8Array.from(DIR8, d => d[0]), DY8 = Int8Array.from(DIR8, d => d[1]);
@@ -288,12 +299,12 @@ export class Simulation {
     forks.forEach((f, k) => {
       const west = k % 2 === 0, y0 = 8 + ((Math.floor(k / 2) * 23 + (h32(k, 3, this.terrain.seed) % 9)) % (ROWS - 16));
       for (let r = 0; r < 30; r++) for (let dy = -r; dy <= r; dy++) {
-        const x = west ? 7 + r : COLS - 9 - r, y = y0 + dy;
+        const x = west ? 12 + r : COLS - 15 - r, y = y0 + dy;
         if (y < 3 || y >= ROWS - 3 || !ok(x, y)) continue;
-        this.terrain.clearTrees(x - 1, y - 2, x + 2, y + 1);
+        this.terrain.clearTrees(x - 5, y - 2, x + 8, y + 4);
         block[y * COLS + x] = block[y * COLS + x + 1] = 1;
-        this.forks.push({ login: f.login, x, y });
-        const ag = this.terrain.plazas[0]!, path = this.bfs(x, y + 1, ag.x, ag.y + 3);
+        const ag = this.terrain.plazas[0]!, path = this.bfs(x, y + 1, ag.x, ag.y + 3), hk = fnv(f.login.toLowerCase() + '#camp');
+        this.forks.push({ login: f.login, x, y, path: path ? [y * COLS + x + COLS, ...path] : [], horses: [(hk >>> 4) % 3, (hk >>> 6) % 3, ...(hk % 2 ? [(hk >>> 9) % 3] : [])], pet: (['cabra', 'cachorro', 'galinha'] as const)[(hk >>> 8) % 3]!, leave: 9.5 + ((hk >>> 12) % 5) * 0.5 });
         if (path) for (const c of path.slice(0, Math.ceil(path.length * 0.6))) if (T[c] === Tile.Grass || T[c] === Tile.Forest || T[c] === Tile.Sand) { this.trail.add(c); this.wear[c] = 6.5; }
         return;
       }
@@ -336,6 +347,27 @@ export class Simulation {
     const x0 = P[i0]! % COLS, y0 = (P[i0]! / COLS) | 0, x1 = P[i1]! % COLS, y1 = (P[i1]! / COLS) | 0;
     if (walking) face = x1 >= x0 ? 1 : -1;
     return { x: x0 + (x1 - x0) * f, y: y0 + (y1 - y0) * f, face, walking };
+  }
+
+  /**
+   * Dono do fork: dorme na tenda, faz café na fogueira, vai a cavalo até a ágora no fim da manhã,
+   * passa a tarde lá e volta para a fogueira no fim do dia. Tudo é função do tempo.
+   */
+  camperAt(k: ForkCamp, tf: number): Camper {
+    const h = (tf / TICKS_PER_HOUR) % 24, home = { x: k.x + 2, y: k.y + 1 }, P = k.path, STEP = RIDE_STEP;
+    const fire = (asleep: boolean): Camper => ({ x: home.x + Math.sin(tf * 0.004 + k.x) * 0.6, y: home.y, face: Math.sin(tf * 0.002 + k.y) > 0 ? 1 : -1, riding: false, asleep, atFire: !asleep });
+    if (h < 6.5 || h >= 23) return fire(true);
+    if (!P.length || this.weather(Math.floor(tf)).storm) return fire(false);
+    const go = k.leave * TICKS_PER_HOUR, back = 15.5 * TICKS_PER_HOUR, len = P.length - 1, day = tf % (24 * TICKS_PER_HOUR);
+    let idx = -1, face: 1 | -1 = 1;
+    if (day >= go && day < go + len * STEP) idx = (day - go) / STEP;
+    else if (day >= go + len * STEP && day < back) { const e = P[len]!; return { x: e % COLS + Math.sin(tf * 0.01) * 1.5, y: ((e / COLS) | 0) + 1, face: Math.sin(tf * 0.01) > 0 ? 1 : -1, riding: false, asleep: false, atFire: false }; }
+    else if (day >= back && day < back + len * STEP) idx = len - (day - back) / STEP;
+    else return fire(false);
+    const i0 = Math.max(0, Math.min(len, Math.floor(idx))), i1 = Math.max(0, Math.min(len, i0 + 1)), f = idx - Math.floor(idx);
+    const x0 = P[i0]! % COLS, y0 = (P[i0]! / COLS) | 0, x1 = P[i1]! % COLS, y1 = (P[i1]! / COLS) | 0;
+    face = (day >= back ? x0 - x1 : x1 - x0) >= 0 ? 1 : -1;
+    return { x: x0 + (x1 - x0) * f, y: y0 + (y1 - y0) * f, face, riding: true, asleep: false, atFire: false };
   }
 
   /** Semana do conselho a que o tick t pertence (muda na quarta às 19h30). */
@@ -511,6 +543,7 @@ export class Simulation {
     if (t === Math.round(19.75 * TICKS_PER_HOUR) && this.weekday === WED) this.makePeace();
     if (t === Math.round(9 * TICKS_PER_HOUR) && this.merchantPath.length) this.note(`O mercador ${this.merchant} chegou pelo oeste com sua carroça`, 'github');
     if (t === Math.round(0.75 * TICKS_PER_HOUR) && this.deerAt(t)) this.note('Lua cheia: alguém jura ter visto o cervo branco entre as árvores', 'lenda');
+    for (const k of this.forks) if (k.path.length && t === Math.round(k.leave * TICKS_PER_HOUR + (k.path.length - 1) * RIDE_STEP) && !this.weather(t).storm) this.note(`${k.login} chegou a cavalo do acampamento e amarrou o ${['baio', 'branco', 'preto'][k.horses[0]!]} perto da ágora`, 'github');
     for (const f of this.festivals) if (t === f.from) this.note(`${f.name} na ágora!${f.kind === 'versão' ? ' Fogos no céu' : f.kind === 'colheita' ? ' Pão quente para todo mundo' : ' Lanternas acesas até tarde'}`, 'evento');
     for (const q of this.requests) {
       if (q.state !== 'closed' || q.closedAt === undefined) continue;
@@ -795,6 +828,7 @@ export class Simulation {
       ['SELL', prof === 'agricultor' && this.isMarketDay() && h >= 9 && h < 12.5 && this.structures.some(s => s.kind === 'mercado' && s.built) ? 4 * (1 - storm) : 0],
       ['BAKE', prof === 'padeiro' && h >= 4.5 && h < 9 && this.wheatStock > 0 ? 5 : 0],
       ['MAIL', prof === 'carteiro' && day ? 1.6 * out : 0],
+      ['CAMP', this.forks.length && (day || evening) ? (0.12 + a.traits.social * 0.2 + a.traits.wander * 0.2) * out * (evening ? 1.6 : 1) : 0],
       ['BOAT', prof === 'pescador' && day && !rain && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
@@ -870,6 +904,17 @@ export class Simulation {
       for (const [dx, dy] of [[0, 0], [1, 1], [0, 1], [2, 1], [-1, 0], [l.w, 0], [1, 2], [-1, 1], [0, -1]] as const) {
         const x = l.x + dx, y = l.y + dy;
         if (y < ROWS && x < COLS && this.terrain.passable(y * COLS + x)) return this.goTo(a, x, y);
+      }
+      return this.startWalk(a);
+    }
+    if (st === 'CAMP') {
+      // um dos dois acampamentos mais perto de casa: senta na fogueira, faz carinho nos cavalos
+      const near = this.forks.map(k => ({ k, d: Math.abs(k.x - a.home.x) + Math.abs(k.y - a.home.y) * 2 })).sort((p, q) => p.d - q.d || p.k.x - q.k.x).slice(0, 2);
+      const k = near[Math.floor(a.r() * near.length)]!.k;
+      a.sight = `acampamento de ${k.login}`;
+      for (const [dx, dy] of [[3, 2], [1, 2], [4, 1], [2, 2], [0, 1], [4, 0]] as const) {
+        const x = k.x + dx, y = k.y + dy;
+        if (x < COLS && y < ROWS && this.terrain.passable(y * COLS + x)) return this.goTo(a, x, y);
       }
       return this.startWalk(a);
     }
@@ -970,6 +1015,14 @@ export class Simulation {
         const fi = a.y * COLS + a.x + (a.r() < 0.5 ? -1 : 1);
         if (this.terrain.T[fi] === Tile.Grass && !this.flower[fi]) { this.flower[fi] = 1 + Math.floor(a.r() * FLOWERS.length); this.groundVersion++; }
         if (a.friend && (t && this.tick - t.lastWater > 1000 ? a.r() < 0.5 : a.r() < 0.04)) this.note(`${a.name} regou a árvore${t && this.tick - t.lastWater > 1000 ? ' com sede' : ''} de ${a.friend.name}`, 'trabalho');
+        return;
+      }
+      if (a.state === 'CAMP') {
+        a.wait = 90 + Math.floor(a.r() * 150);
+        const k = this.forks.find(f => a.sight === `acampamento de ${f.login}`);
+        const roll = a.r();
+        a.bubble = roll < 0.35 ? '♪' : roll < 0.65 ? '♥' : '~'; a.bubbleUntil = tick + 20;
+        if (k && a.r() < 0.1) this.note(roll < 0.35 ? `${a.name} tocou uma moda na fogueira do acampamento de ${k.login}` : roll < 0.65 ? `${a.name} deu uma cenoura para o cavalo de ${k.login}` : `${a.name} ouviu histórias da estrada no acampamento de ${k.login}`, 'encontro');
         return;
       }
       if (a.state === 'FARM') {

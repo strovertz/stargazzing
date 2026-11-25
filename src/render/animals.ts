@@ -16,6 +16,10 @@ const ART: Record<string, string[]> = {
   galinha: ['..r.', '.ww.', 'wwwy', '.ww.', '.y..'],
   pato: ['..gg.', '..gwy', 'www..', '.ww..'],
   sapo: ['.g.g.', 'ggggg', 'g...g'],
+  cavalo0: ['........hh', '.......hhh', '.......hh.', 'mhhhhhhhh.', 'mhhhhhhh..', '.hhhhhhh..', '.h.h..h.h.', '.h.h..h.h.'],
+  cavalo1: ['........hh', '.......hhh', '.......hh.', 'mhhhhhhhh.', 'mhhhhhhh..', '.hhhhhhh..', '.h.h..h.h.', '.h.h..h.h.'],
+  cavalo2: ['........hh', '.......hhh', '.......hh.', 'mhhhhhhhh.', 'mhhhhhhh..', '.hhhhhhh..', '.h.h..h.h.', '.h.h..h.h.'],
+  cabra: ['...y.y', '...www', 'w.www.', 'wwww..', 'w..w..'],
   cervo: ['y.y.....', '.yy.....', '.ww.....', 'wwwwwww.', '.wwwwwww', '.w.w..w.', '.w.w..w.'],
 };
 const COLORS: Record<string, Record<string, string>> = {
@@ -24,6 +28,10 @@ const COLORS: Record<string, Record<string, string>> = {
   gato: { k: '#2a2a30' },
   gatinho: { k: '#e8954a' },
   cervo: { w: '#f4f6ff', y: '#d8d0b8' },
+  cavalo0: { h: '#8a5a32', m: '#3a2410' },
+  cavalo1: { h: '#e8e4dc', m: '#a8a090' },
+  cavalo2: { h: '#2e2824', m: '#0e0c0a' },
+  cabra: { w: '#d8d4c8', y: '#8a8070' },
   cachorro: { b: '#a86a3a' },
   galinha: { w: '#f4efe4', r: '#d0302a', y: '#f2b134' },
   pato: { w: '#e8e0c8', g: '#2f7a4a', y: '#f2b134' },
@@ -135,3 +143,12 @@ export function drawPets(g: CanvasRenderingContext2D, sim: Simulation, v: View, 
   });
   return out;
 }
+
+/** Bicho do acampamento (cavalo, cabra, cachorro, galinha) desenhado em pixel, de pé em (x, y) na tela. */
+export function drawCampAnimal(g: CanvasRenderingContext2D, kind: string, x: number, y: number, z: number, face: number, bob = 0): void {
+  const c = art(kind), px = z * (kind.startsWith('cavalo') ? 2.4 : 2);
+  g.save(); g.translate(x, y - c.height * px + bob); if (face < 0) g.scale(-1, 1);
+  g.drawImage(c, -(c.width * px) / 2, 0, c.width * px, c.height * px); g.restore();
+}
+/** Largura e altura (em px de tela) do cavalo, para montar o cavaleiro em cima. */
+export const HORSE = { w: 10 * 2.4, h: 8 * 2.4 };

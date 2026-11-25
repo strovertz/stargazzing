@@ -22,7 +22,7 @@ import { encode, restore } from './sim/snapshot';
 import { loadSnap, saveSnap } from './core/store';
 import type { ReplayJob, ReplayMsg } from './sim/worker';
 
-const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama', FARM: 'cuidando do trigo', SELL: 'vendendo na banca', BAKE: 'assando pão', MAIL: 'entregando cartas' };
+const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama', FARM: 'cuidando do trigo', SELL: 'vendendo na banca', BAKE: 'assando pão', MAIL: 'entregando cartas', CAMP: 'no acampamento' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
@@ -38,6 +38,7 @@ function stateText(a: Agent): string {
   if (a.state === 'VISIT' && a.friend) return `visitando ${a.friend.name}`;
   if (a.state === 'CHAT' && a.friend && a.phase === 'stay') return `conversando com ${a.friend.name}`;
   if (a.state === 'GAME' && a.friend) return `jogando dama com ${a.friend.name}`;
+  if (a.state === 'CAMP' && a.sight) return `${a.phase === 'stay' ? 'no' : 'indo ao'} ${a.sight}`;
   if (a.state === 'SIGHT' && a.sight) return `${a.phase === 'stay' ? 'no' : 'indo ao'} ${a.sight}`;
   return STATE_PT[a.state];
 }
@@ -536,4 +537,6 @@ async function boot(): Promise<void> {
   bind();
   requestAnimationFrame(loop);
 }
+// ?debug expõe a simulação e o renderer no console (para testes e screenshots)
+if (new URLSearchParams(location.search).has("debug")) Object.assign(window, { __sim: () => sim, __r: () => renderer });
 boot().catch(err => { $('loadTxt').textContent = `Não consegui carregar o mundo: ${String(err)}`; });

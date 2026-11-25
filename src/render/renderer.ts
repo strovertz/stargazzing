@@ -7,7 +7,7 @@ import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
 import { houseVariant, boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
 import { spritesFor, toolSprite } from './sprites';
-import { drawAnimals, drawCat, drawDeer, drawPets } from './animals';
+import { drawAnimals, drawCampAnimal, drawCat, drawDeer, drawPets, HORSE } from './animals';
 import { lookFor } from '../sim/look';
 import { clearTreeCache, treeSprite } from './trees';
 import { glow } from './glow';
@@ -88,6 +88,17 @@ export class Renderer {
   /** Qualidade: 2 completa, 1 resolução menor, 0 resolução menor e sem o vento na grama. */
   quality = 2;
   private festSlot = -1;
+  /** dono de fork montado no cavalo, trotando pela trilha */
+  private drawRider(k: { login: string; horses: number[] }, cp: { x: number; y: number; face: number }, tf: number, ts: number): void {
+    const fx = this.fx, z = this.zoom, { ox, oy } = this.view(), sc = z * 2;
+    const x = (cp.x - ox) * CW * z, y = (cp.y - oy) * CH * z, trot = Math.abs(Math.sin(ts * 9)) * 1.5 * z;
+    drawCampAnimal(fx, `cavalo${k.horses[0]}`, x, y, z, cp.face, -trot);
+    const look = lookFor(k.login).look, s2 = spritesFor(`@f:${k.login}`, look);
+    fx.save(); fx.translate(x - cp.face * 2 * z, y - HORSE.h * z * 0.55 - 11.5 * sc - trot); if (cp.face < 0) fx.scale(-1, 1);
+    fx.drawImage(s2.step, 0, 0, 8, 10, -4 * sc, 0, 8 * sc, 10 * sc); fx.restore();
+    if (!this.hideLabels) { fx.font = `600 11px Inter,sans-serif`; fx.textAlign = 'center'; fx.textBaseline = 'middle'; const t = `⑂ ${k.login}`, w = fx.measureText(t).width + 10; fx.fillStyle = 'rgba(4,7,9,.65)'; fx.beginPath(); fx.roundRect(x - w / 2, y - HORSE.h * z - 12 * sc - 7, w, 14, 7); fx.fill(); fx.fillStyle = '#9fd8ff'; fx.fillText(t, x, y - HORSE.h * z - 12 * sc); }
+    void tf;
+  }
   setQuality(q: number): void { q = Math.max(0, Math.min(2, q)); if (q === this.quality) return; this.quality = q; this.resize(); this.warm = true; }
 
   resize(): void {
@@ -483,10 +494,63 @@ export class Renderer {
       } });
     }
     // acampamentos de quem fez fork
+    const campFires: { x: number; y: number }[] = [];
+    // acampamentos de quem fez fork: tenda, fogueira com troncos, cerca com cavalos, um bicho e o dono
     for (const k of sim.forks) {
-      if (!inV(k.x, k.y, 5)) continue;
+      const cp = sim.camperAt(k, tf);
+      if (cp.riding && inV(cp.x, cp.y, 3)) ds.push({ y: cp.y + 0.05, draw: () => this.drawRider(k, cp, tf, ts) });
+      if (!inV(k.x + 2, k.y, 9)) continue;
       const spr = tentSprite(h32(k.x, k.y, 3) % 360, cs * 1.2, ch * 1.2, this.dpr), cx0 = sx(k.x + 0.5);
       ds.push({ y: k.y + 0.02, draw: () => fx.drawImage(spr.canvas, cx0 - spr.w / 2, sy(k.y) - spr.h + ch * 0.1, spr.w, spr.h) });
+      if (z < 0.4) continue;
+      // fogueira do acampamento (acesa do fim da tarde até tarde da noite, e cedo para o café)
+      const fh = hourAt(tf), lit = fh >= 17 || fh < 1 || (fh >= 6 && fh < 8.5);
+      const fxp = k.x + 2.5, fyp = k.y + 0.6;
+      if (lit) campFires.push({ x: fxp, y: fyp });
+      ds.push({ y: fyp, draw: () => {
+        fx.fillStyle = '#5a3a20'; fx.fillRect(sx(fxp - 1.4), sy(fyp) - ch * 0.12, cs * 0.7, ch * 0.2); fx.fillRect(sx(fxp + 0.7), sy(fyp) - ch * 0.12, cs * 0.7, ch * 0.2);
+        if (lit) drawFire(fx, sx(fxp), sy(fyp) - ch * 0.35, cs * 0.9, ch * 0.9, ts, k.x * 31 + k.y);
+        else { fx.fillStyle = '#4a4440'; fx.font = `700 ${Math.round(ch * 0.5)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle'; fx.fillText('ᵒ', sx(fxp), sy(fyp) - ch * 0.2); }
+      } });
+      // cerca com cavalos pastando (o que saiu com o dono não está aqui)
+      const west = k.x < COLS / 2, fw = k.horses.length * 2.6 + 0.8, px0 = west ? k.x + 4.6 : k.x - 2.6 - fw, py0 = k.y + 2.6;
+      ds.push({ y: py0 + 0.6, draw: () => {
+        fx.fillStyle = '#7a5530';
+        fx.fillRect(sx(px0), sy(py0 + 0.55), cs * fw, 2); fx.fillRect(sx(px0), sy(py0 + 0.25), cs * fw, 2);
+        for (let q = 0; q <= Math.round(fw); q++) fx.fillRect(sx(px0 + Math.min(fw, q)), sy(py0 + 0.1), 2, ch * 0.55);
+      } });
+      k.horses.forEach((hc, q) => {
+        if (q === 0 && cp.riding) return;
+        if (q === 0 && !cp.riding && !cp.atFire && !cp.asleep) return; // amarrado na ágora
+        const gx = px0 + 1.7 + q * 2.6 + Math.sin(ts * 0.07 + q * 2 + k.x) * 0.3, gy = py0 - 0.05 + (q % 2) * 0.25, face = Math.sin(ts * 0.05 + q + k.y) > 0 ? 1 : -1;
+        const graze = Math.sin(ts * 0.6 + q * 3) > 0.3 ? z * 1.2 : 0;
+        ds.push({ y: gy, draw: () => drawCampAnimal(fx, `cavalo${hc}`, sx(gx), sy(gy), z, face, graze) });
+      });
+      // carroça coberta estacionada do outro lado da tenda
+      const cart = cartSprite(cs, ch, this.dpr), cxp = k.x + (west ? -2.2 : 3.4);
+      ds.push({ y: k.y + 0.6, draw: () => {
+        fx.drawImage(cart.canvas, sx(cxp) - cart.w / 2, sy(k.y + 0.6) - cart.h, cart.w, cart.h);
+        fx.fillStyle = '#efe3c2'; fx.beginPath(); fx.ellipse(sx(cxp), sy(k.y + 0.6) - cart.h * 0.85, cart.w * 0.42, cart.h * 0.45, 0, Math.PI, 0); fx.fill();
+      } });
+      // bicho solto pelo acampamento
+      const ax = k.x + 1 + Math.sin(ts * 0.11 + k.x) * 2.2, ay = k.y + 1.6 + Math.cos(ts * 0.08 + k.y) * 0.5;
+      ds.push({ y: ay, draw: () => drawCampAnimal(fx, k.pet, sx(ax), sy(ay), z, Math.cos(ts * 0.11 + k.x) > 0 ? 1 : -1, Math.abs(Math.sin(ts * 3)) > 0.9 ? -z : 0) });
+      // dono do fork na fogueira (ou dormindo na tenda)
+      if (!cp.riding && (cp.atFire || cp.asleep)) {
+        const look = lookFor(k.login).look, s2 = spritesFor(`@f:${k.login}`, look);
+        ds.push({ y: cp.y, draw: () => {
+          if (cp.asleep) { fx.fillStyle = '#c8d0e0'; fx.font = `700 ${Math.round(9 + 3 * z)}px "JetBrains Mono",monospace`; fx.fillText('z', cx0 + cs * 0.4 + Math.sin(ts) * 3, sy(k.y) - ch * 1.6 - (ts % 2) * 6 * z); return; }
+          fx.save(); fx.translate(sx(cp.x), sy(cp.y) - 14 * sc - z); if (cp.face < 0) fx.scale(-1, 1); fx.drawImage(s2.stand, -4 * sc, 0, 8 * sc, 14 * sc); fx.restore();
+          // na fogueira à noite o dono do fork puxa uma viola
+          if (hourAt(tf) >= 19 && Math.sin(ts * 0.5 + k.x) > 0) { fx.fillStyle = '#f2c14e'; fx.font = `700 ${Math.round(10 + 3 * z)}px "JetBrains Mono",monospace`; fx.fillText('♪', sx(cp.x) + 7 * sc, sy(cp.y) - 16 * sc - Math.sin(ts * 3) * 2); }
+        } });
+      }
+      // à tarde na ágora: o dono passeia e o cavalo fica amarrado no poste
+      if (!cp.riding && !cp.atFire && !cp.asleep && inV(cp.x, cp.y, 3)) {
+        const look = lookFor(k.login).look, s2 = spritesFor(`@f:${k.login}`, look), e = k.path[k.path.length - 1]!, hx = e % COLS - 1.5, hy = ((e / COLS) | 0) + 0.3;
+        ds.push({ y: hy, draw: () => { fx.fillStyle = '#6a4426'; fx.fillRect(sx(hx - 0.9), sy(hy) - ch * 0.8, 2, ch * 0.8); drawCampAnimal(fx, `cavalo${k.horses[0]}`, sx(hx), sy(hy), z, 1, Math.sin(ts * 0.6) > 0.5 ? z : 0); } });
+        ds.push({ y: cp.y, draw: () => { fx.save(); fx.translate(sx(cp.x), sy(cp.y) - 14 * sc - z); if (cp.face < 0) fx.scale(-1, 1); fx.drawImage(s2.stand, -4 * sc, 0, 8 * sc, 14 * sc); fx.restore(); } });
+      }
     }
     // mercador do dia com a carroça
     const mc = sim.merchant ? sim.merchantAt(tf) : null;
@@ -558,6 +622,7 @@ export class Renderer {
       dx.globalCompositeOperation = 'destination-out';
       const hole = (x: number, y: number, r: number, s: number) => glow(dx, x, y, r, '0,0,0', s, r, true);
       for (const p of fires) hole(sx(p.x), sy(p.y) - ch * 0.5, cs * 11 * flick(p.x), 0.95);
+      for (const p of campFires) hole(sx(p.x), sy(p.y) - ch * 0.4, cs * 6 * flick(p.x), 0.85);
       if (evening) for (const { a, spr } of houses) hole(sx(a.home.x - HOUSE_DX), sy(a.home.y) - spr.h * 0.3, cs * 4.5, 0.8 * (1 - L));
       if (lanternsOn && evening) for (const [lx, ly] of sim.lanterns) hole(sx(lx), sy(ly) - ch * 1.6, cs * 5, 0.75 * (1 - L));
       for (const { a } of crystals) hole(sx(a.home.x - HOUSE_DX + 1), sy(a.home.y) - ch * 0.4, cs * 3, 0.6 * (1 - L));
@@ -571,6 +636,7 @@ export class Renderer {
     fx.globalCompositeOperation = 'lighter';
     if (lanternsOn && evening) for (const [lx, ly] of sim.lanterns) glow(fx, sx(lx), sy(ly) - ch * 1.6, cs * 2.2, '255,210,120', 0.3 * (1 - L));
     for (const p of fires) glow(fx, sx(p.x), sy(p.y) - ch * 0.5, cs * 6 * flick(p.x + 9), '255,140,52', 0.32 + (1 - L) * 0.2);
+    for (const p of campFires) glow(fx, sx(p.x), sy(p.y) - ch * 0.4, cs * 3.5 * flick(p.x + 9), '255,140,52', 0.28 + (1 - L) * 0.2);
     if (evening) for (const { a, spr } of houses) glow(fx, sx(a.home.x - HOUSE_DX), sy(a.home.y) - spr.h * 0.3, cs * 2, '255,190,90', 0.22 * (1 - L));
     for (const { a } of crystals) glow(fx, sx(a.home.x - HOUSE_DX + 1), sy(a.home.y) - ch * 0.4, cs * 1.6, '190,150,255', 0.45 * (1 - L));
     if (sim.crystalLit) for (const lm of sim.terrain.landmarks) if (lm.kind === 'templo' && inV(lm.x + 3, lm.y, 8)) glow(fx, sx(lm.x + 3), sy(lm.y) - ch * 2.6, cs * (3 + Math.sin(ts * 1.5) * 0.4), '200,170,255', 0.55);
