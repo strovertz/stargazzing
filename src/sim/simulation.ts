@@ -1,6 +1,7 @@
 import { hsl } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
 import { INSTRUMENTS, PET_NAMES, PETS, PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile, WALKABLE } from './constants';
+import { skyEventFor, type SkyEvent } from './extras';
 import { affinity, commitBias, COUPLE_AT, ecosystem, FRIEND_AT, isFullMoon, merchantFor, RIVAL_AT } from './extras';
 import { age, lookFrom, profOf } from './look';
 import { CROPS, cropOf, growth, WHEAT_EPOCH, WHEAT_TARGET, type Growth } from './farm';
@@ -109,6 +110,8 @@ export class Simulation {
   private readonly prev = new Int32Array(N);
   private readonly seen = new Uint32Array(N);
   private stamp = 0;
+  /** evento do céu desta noite (meteoros, eclipse, aurora) */
+  sky: SkyEvent | null = null;
   /** casas vazias de quem tirou a star ("aqui morou ...") */
   readonly emptyHouses: { login: string; home: Point }[] = [];
   /** recados (issues "recado") por login e quem já teve PR aceito */
@@ -189,6 +192,7 @@ export class Simulation {
     this.wheatSeen = this.wheat.harvests;
     this.wheatStock = nowMs - this.wheat.lastHarvest < 3 * DAY_MS ? 12 : 4;
     this.planFestivals();
+    this.sky = skyEventFor(genesis, world.timezoneOffsetHours ?? -3, this.season, this.terrain.seed);
     this.placeBridge();
     this.planMerchant();
     // votação mais recente do conselho (quarta, 19h30) vale até a próxima
@@ -439,6 +443,7 @@ export class Simulation {
 
   /** Notas do começo do dia: forks recentes, pedidos e o ecossistema. */
   private startNotes(): void {
+    if (this.sky) this.note(this.sky.name, 'céu');
     const day = this.genesis;
     for (const f of this.extra.forks ?? []) { const at = Date.parse(f.at); if (at >= day - DAY_MS && at < day + DAY_MS) { const c = this.forks.find(k => k.login === f.login); if (c) this.note(`${f.login} fez um fork e montou acampamento na borda da floresta`, 'github'); } }
     const open = this.requests.filter(q => q.state === 'open').length;
@@ -856,7 +861,7 @@ export class Simulation {
       ['BAKE', prof === 'padeiro' && h >= 4.5 && h < 9 && this.wheatStock > 0 ? 5 : 0],
       ['MAIL', prof === 'carteiro' && day ? 1.6 * out : 0],
       ['CAMP', this.forks.length && (day || evening) ? (0.12 + a.traits.social * 0.2 + a.traits.wander * 0.2) * out * (evening ? 1.6 : 1) : 0],
-      ['BOAT', prof === 'pescador' && day && !rain && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
+      ['BOAT', prof === 'pescador' && day && !rain && this.season !== 2 && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
     let st: State = 'REST';

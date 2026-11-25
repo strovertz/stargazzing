@@ -2,7 +2,7 @@ import { css, hex, mix, type RGB } from '../core/color';
 import { h32 } from '../core/rng';
 import { COLS, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, Tile } from '../sim/constants';
 import { hourAt, stageOf, type Simulation } from '../sim/simulation';
-import { lightningAt } from '../sim/weather';
+import { lightningAt, weatherAt } from '../sim/weather';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
 import { houseVariant, boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
@@ -126,15 +126,23 @@ export class Renderer {
    * estrelas refletidas na água), refeitas só quando o chão muda: o quadro percorre
    * centenas de células em vez de varrer a tela inteira.
    */
-  private lists = { flower: [] as number[], mush: [] as number[], water: [] as number[], gv: -1, tv: -1, sim: null as Simulation | null };
-  private cells(kind: 'flower' | 'mush' | 'water'): number[] {
+  private lists = { flower: [] as number[], mush: [] as number[], water: [] as number[], puddle: [] as number[], gv: -1, tv: -1, pv: -1, sim: null as Simulation | null };
+  private cells(kind: 'flower' | 'mush' | 'water' | 'puddle'): number[] {
     const L = this.lists, sim = this.sim, t = sim.terrain;
-    if (L.sim !== sim) { L.sim = sim; L.gv = L.tv = -1; }
+    if (L.sim !== sim) { L.sim = sim; L.gv = L.tv = L.pv = -1; }
+    if (kind === 'puddle') {
+      // poça: trilha bem gasta ou laje da ágora, uma célula em cada 9 (refeito a cada mudança do chão, no máximo a cada 240 ticks)
+      if (L.pv !== sim.groundVersion) {
+        L.pv = sim.groundVersion; L.puddle = [];
+        for (let i = 0; i < N; i++) { const tt = t.T[i]; if (((tt === Tile.Grass || tt === Tile.Forest) && sim.wear[i]! >= 6) || (tt === Tile.Floor && t.ruinCh[i] === 'a')) if (h32(i, 5, 70) % 9 === 0) L.puddle.push(i); }
+      }
+      return L.puddle;
+    }
     if (kind === 'flower' && L.gv !== sim.groundVersion) {
       L.gv = sim.groundVersion; L.flower = [];
       for (let i = 0; i < N; i++) if (sim.flower[i]) L.flower.push(i);
     }
-    if (kind !== 'flower' && L.tv !== t.version) {
+    if ((kind === 'mush' || kind === 'water') && L.tv !== t.version) {
       L.tv = t.version; L.mush = []; L.water = [];
       for (let i = 0; i < N; i++) {
         const x = i % COLS, y = (i / COLS) | 0;
@@ -143,6 +151,27 @@ export class Renderer {
       }
     }
     return L[kind];
+  }
+
+  /** Quão molhado está o chão: chuva das últimas ~3 horas, mais forte quanto mais recente. */
+  private wetCache = { tick: -1, v: 0, sim: null as Simulation | null };
+  private wetness(): number {
+    const sim = this.sim, slot = Math.floor(sim.tick / 120);
+    if (this.wetCache.sim === sim && this.wetCache.tick === slot) return this.wetCache.v;
+    let v = 0;
+    for (let k = 0; k < 12; k++) { const t = sim.tick - k * 240; if (t < 0) break; v = Math.max(v, sim.weather(t).rain * (1 - k / 12)); }
+    this.wetCache = { tick: slot, v, sim };
+    return v;
+  }
+  /** Seca: nenhuma hora de chuva nos últimos 3 dias (calculado uma vez por dia). */
+  private dryCache = { sim: null as Simulation | null, v: false };
+  drought(): boolean {
+    const sim = this.sim;
+    if (this.dryCache.sim === sim) return this.dryCache.v;
+    let rain = 0;
+    for (let h = 1; h <= 72 && !rain; h++) { const abs = (sim.genesis - h * 3_600_000) / 3_600_000; if (weatherAt(sim.terrain.noise, abs, abs % 24).rain > 0.3) rain++; }
+    this.dryCache = { sim, v: rain === 0 && sim.season !== 2 };
+    return this.dryCache.v;
   }
 
   setSim(sim: Simulation): void { this.sim = sim; this.groundCache.setSim(sim); this.miniVersion = -1; this.dirty = true; this.warm = true; }
@@ -231,7 +260,7 @@ export class Renderer {
         if (w < windMin) continue;
         bx.fillStyle = w > 0.34 ? '#6fa86a' : '#4f8a52';
         bx.fillText(hs % 2 ? '/' : "'", (x - ox + 0.2 + (hs % 3) * 0.3) * cw, (y - oy + 0.25 + (hs % 4) * 0.18) * ch);
-      } else if ((t <= Tile.Shallow || t === Tile.Stream) && hs < 50) {
+      } else if (((t <= Tile.Shallow && sim.season !== 2) || t === Tile.Stream) && hs < 50) {
         const v = noise(x * 0.16, y * 0.32, ts * 0.25);
         if (v < 0.22) continue;
         bx.fillStyle = v > 0.34 ? '#5fa0c0' : '#2f6a88';
@@ -275,6 +304,33 @@ export class Renderer {
     fx.fillStyle = 'rgba(0,0,0,.35)';
     for (const a of list) { const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)); fx.beginPath(); fx.ellipse(sx(a.px + (a.x - a.px) * f), sy(a.py + (a.y - a.py) * f) - 2 * z, 5 * sc, 1.6 * sc, 0, 0, 7); fx.fill(); }
 
+    const dry = this.drought();
+    // poças depois da chuva (nas trilhas e nas lajes) e riacho transbordando depois de chuva forte
+    const wet = this.wetness();
+    if (wet > 0.05 && z >= 0.5) {
+      const x0 = ox - 1, x1 = ox + vw + 1, y0 = oy - 1, y1 = oy + vh + 1;
+      for (const i of this.cells('puddle')) {
+        const x = i % COLS, y = (i / COLS) | 0;
+        if (x < x0 || x > x1 || y < y0 || y > y1 || h32(x, y, 71) % 100 > wet * 100) continue;
+        const px = sx(x), py = sy(y) - ch * 0.45, r = cs * (0.35 + (h32(x, y, 72) % 30) / 100) * Math.min(1, wet * 1.6);
+        fx.fillStyle = `rgba(40,70,96,${0.55 * Math.min(1, wet * 2)})`; fx.beginPath(); fx.ellipse(px, py, r, r * 0.42, 0, 0, 7); fx.fill();
+        fx.fillStyle = `rgba(160,200,230,${0.35 * Math.min(1, wet * 2)})`; fx.fillRect(px - r * 0.4, py - r * 0.12, r * 0.5, 1);
+        if (wx.rain > 0.3 && (ts * 3 + x) % 1 < 0.3) { fx.strokeStyle = 'rgba(180,210,235,.5)'; fx.lineWidth = 1; fx.beginPath(); fx.ellipse(px + ((h32(x, y, Math.floor(ts * 3)) % 7) - 3), py, r * 0.4, r * 0.16, 0, 0, 7); fx.stroke(); }
+      }
+      if (wet > 0.55 && sim.season !== 2) {
+        fx.font = `700 ${Math.round(ch * 0.55)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+        for (const i of sim.terrain.stream) {
+          const x = i % COLS, y = (i / COLS) | 0;
+          if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+          for (const d of [-1, 1]) {
+            const j = i + d;
+            if (sim.terrain.T[j] !== Tile.Grass && sim.terrain.T[j] !== Tile.Forest) continue;
+            fx.fillStyle = `rgba(60,120,160,${(wet - 0.5) * 1.2})`; fx.fillRect(sx(x + d) - cs * 0.5, sy(y) - ch, cs, ch);
+            fx.fillStyle = `rgba(140,190,220,${(wet - 0.5) * 1.4})`; fx.fillText(Math.sin(ts * 2 + x + y) > 0 ? '~' : '-', sx(x + d), sy(y) - ch * 0.5);
+          }
+        }
+      }
+    }
     // flores: brotam das trilhas esquecidas e balançam com o vento
     const fl: { x: number; y: number }[] = [];
     if (z >= 0.65) {
@@ -286,7 +342,7 @@ export class Renderer {
         fl.push({ x, y });
         const hh = h32(x, y, 17), bx = sx(x) + ((hh % 7) - 3) * cs * 0.08, by = sy(y) - ch * 0.35, sway = Math.sin(ts * (1 + wx.wind * 2) + x * 0.7) * cs * 0.06 * (0.5 + wx.wind);
         fx.fillStyle = '#3f7a38'; fx.fillText('|', bx, by + ch * 0.12);
-        fx.fillStyle = FLOWERS[f - 1]!; fx.fillText(hh % 3 ? '*' : 'o', bx + sway, by - ch * 0.12);
+        fx.fillStyle = dry ? '#a89060' : FLOWERS[f - 1]!; fx.fillText(dry ? (hh % 3 ? ',' : '.') : hh % 3 ? '*' : 'o', bx + sway, by - ch * (dry ? 0.02 : 0.12));
         if (hh % 4 === 0) { fx.fillStyle = FLOWERS[(f + 1) % FLOWERS.length]!; fx.fillText('*', bx + cs * 0.3 + sway, by); }
       }
     }
@@ -311,11 +367,22 @@ export class Renderer {
     type D = { y: number; draw: () => void };
     const ds: D[] = [];
     drawPets(fx, sim, view, ts, posOf, i => { const a = sim.agents[i]!; return a.phase === 'stay' && a.state === 'REST' && (h >= 23 || h < 5.5); }, (y, draw) => ds.push({ y: y - 0.01, draw }));
+    const birdsOut = z >= 0.65 && L > 0.5 && wx.rain < 0.3;
     for (const { t, spr } of sprites) {
       const wind = sim.terrain.noise(t.x * 0.06 - ts * (0.2 + wx.wind * 0.5), t.y * 0.12, ts * 0.05), sk = wind * (0.02 + wx.wind * 0.11) + Math.sin(ts * (1.2 + wx.wind * 1.5) + t.x) * (0.004 + wx.wind * 0.012);
       ds.push({ y: t.y + 0.01, draw: () => {
         fx.save(); fx.translate(sx(t.x), sy(t.y)); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h);
         if (t.fruit) for (let k = 0; k < 7; k++) { const hh = h32(t.x * 7 + k, t.y, 11); fx.fillStyle = sim.season === 1 ? '#e8862a' : '#d8302a'; fx.beginPath(); fx.arc(((hh % 100) / 100 - 0.5) * spr.canopyW * 0.8, -spr.h * (0.45 + ((hh >>> 8) % 40) / 100), 1.8 * z, 0, 7); fx.fill(); }
+        // passarinhos pousando no pomar de dia: chegam voando, bicam a fruta e vão embora
+        if (t.fruit && birdsOut) for (let k = 0; k < 3; k++) {
+          const per = 7 + k, ph = ts / per + k * 0.31 + t.x * 0.07, slot = Math.floor(ph), u = ph % 1, hh = h32(slot, k, t.x * 131 + t.y);
+          if (hh % 3 === 0) continue;
+          const px = ((hh % 100) / 100 - 0.5) * spr.canopyW * 0.7, py = -spr.h * (0.5 + ((hh >>> 8) % 30) / 100);
+          const fly = u < 0.15 ? 1 - u / 0.15 : u > 0.85 ? (u - 0.85) / 0.15 : 0, bxp = px + fly * 40 * z * (k % 2 ? 1 : -1), byp = py - fly * 50 * z;
+          fx.fillStyle = ['#3a3a44', '#8a4a2a', '#2a4a7a'][k]!;
+          if (fly > 0) { fx.font = `700 ${Math.round(8 + 3 * z)}px "JetBrains Mono",monospace`; fx.fillText(Math.sin(ts * 14 + k) > 0 ? 'v' : '-', bxp, byp); }
+          else { const hop = Math.sin(ts * 6 + k * 2) > 0.7 ? -1.2 * z : 0; fx.fillRect(bxp - 1.6 * z, byp - 1.6 * z + hop, 3.2 * z, 2.2 * z); fx.fillRect(bxp + 1.4 * z, byp - 2.4 * z + hop, 1.4 * z, 1.4 * z); }
+        }
         fx.restore();
       } });
     }
@@ -399,6 +466,19 @@ export class Renderer {
           fx.fillStyle = stg === 3 ? (k ? '#f0c860' : '#dcae44') : stg === 2 ? '#8ccc62' : '#9ad870';
           fx.fillText(stg === 1 ? ',' : stg === 2 ? '|' : 'Ψ', px + sw2, sy(y) - ch * (stg === 1 ? 0.05 : 0.25));
         }
+      } });
+    }
+    // rede de pesca secando no píer quando o barco não está na água
+    const pier = sim.structures.find(st => st.kind === 'píer' && st.built);
+    if (pier && pier.cells.length > 2 && z >= 0.65 && !sim.agents.some(a => a.state === 'BOAT' && a.phase === 'stay')) {
+      const c = pier.cells[Math.floor(pier.cells.length / 2)]!, nx = c % COLS, ny = (c / COLS) | 0;
+      if (inV(nx, ny, 4)) ds.push({ y: ny + 0.1, draw: () => {
+        const x0 = sx(nx) - cs * 0.9, x1 = sx(nx) + cs * 0.9, top = sy(ny) - ch * 1.3, bot = sy(ny) - ch * 0.25, sway = Math.sin(ts * (1 + wx.wind * 2)) * 2 * z;
+        fx.fillStyle = '#6a4426'; fx.fillRect(x0, top, 2, bot - top); fx.fillRect(x1, top, 2, bot - top);
+        fx.strokeStyle = 'rgba(200,196,180,.75)'; fx.lineWidth = 1; fx.beginPath();
+        for (let q = 0; q <= 4; q++) { const xx = x0 + ((x1 - x0) * q) / 4; fx.moveTo(xx, top + 2); fx.lineTo(xx + sway, bot - 3); }
+        for (let q = 0; q <= 3; q++) { const yy = top + 2 + ((bot - top - 5) * q) / 3; fx.moveTo(x0, yy); fx.lineTo(x1 + sway * (q / 3), yy); }
+        fx.stroke();
       } });
     }
     // ponte do riacho (quebrada até a vila juntar stars) e o mirante do outro lado
@@ -597,7 +677,10 @@ export class Renderer {
           // no barco: um pouco para dentro da água, balançando
           const pier = sim.structures.find(st => st.kind === 'píer');
           const end = pier?.cells[pier.cells.length - 1] ?? 0, ex = end % COLS, ey = (end / COLS) | 0;
-          bx = sx(ex + 1 + Math.sin(ts * 0.2 + a.hue) * 1.5); by = sy(ey + 1) + Math.sin(ts * 1.6 + a.hue) * 1.5 * z;
+          // rema até o meio do lago, fica pescando e volta antes do fim
+          const first = pier?.cells[0] ?? end, dxp = ex - (first % COLS), dyp = ey - ((first / COLS) | 0), dl = Math.hypot(dxp, dyp) || 1;
+          const go = Math.min(1, Math.max(0, (tf - a.mt) / 60), Math.max(0, a.wait / 60)), far = go * 6;
+          bx = sx(ex + (dxp / dl) * (1 + far) + Math.sin(ts * 0.2 + a.hue) * 0.6); by = sy(ey + (dyp / dl) * (1 + far) * 0.6 + 1) + Math.sin(ts * 1.6 + a.hue) * 1.5 * z;
           const b = boatSprite(cs, ch, this.dpr); fx.drawImage(b.canvas, bx - b.w / 2, by - b.h * 0.6, b.w, b.h);
         }
         fx.save(); fx.translate(bx, by - 14 * sc - z + bob - (boat ? 4 * sc : 0)); if (face < 0) fx.scale(-1, 1); fx.drawImage(fr, -4 * sc, 0, 8 * sc, 14 * sc);
@@ -809,8 +892,40 @@ export class Renderer {
       glow(fx, x, y, 18, `255,${170 + lt.hue},90`, 0.5 * a);
       fx.fillStyle = `rgba(255,${190 + lt.hue / 2},120,${a})`; fx.fillRect(x - 4, y - 6, 8, 10);
     }
+    // seca: a grama amarela um pouco
+    if (dry && L > 0.3) { fx.fillStyle = 'rgba(190,160,70,.07)'; fx.fillRect(0, 0, VW, VH); }
+    // céu de verdade: chuva de meteoros, eclipse lunar (céu avermelhado) e aurora rara de inverno
+    const ev = sim.sky, hNow = hourAt(sim.tick), nightSky = (hNow >= 20 || hNow < 5) && wx.cloud < 0.7;
+    if (ev && nightSky) {
+      if (ev.kind === 'meteoros') for (let k = 0; k < 5; k++) {
+        const per = 1.3 + k * 0.37, slot = Math.floor(ts / per), u = (ts / per) % 1, hh = h32(slot, k, seed + 3);
+        if (hh % 3 === 0 || u > 0.5) continue;
+        const a2 = 1 - u * 2, x0 = ((hh % 1000) / 1000) * VW, y0 = (((hh >>> 10) % 1000) / 1000) * VH * 0.45, len = 90 + (hh % 80);
+        const hx = x0 + u * len * 2.4, hy = y0 + u * len * 1.1;
+        const g = fx.createLinearGradient(hx - len * 0.6, hy - len * 0.28, hx, hy); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, `rgba(255,250,225,${a2})`);
+        fx.strokeStyle = g; fx.lineWidth = 1.6; fx.beginPath(); fx.moveTo(hx - len * 0.6, hy - len * 0.28); fx.lineTo(hx, hy); fx.stroke();
+      }
+      if (ev.kind === 'eclipse') { fx.fillStyle = 'rgba(120,30,20,.10)'; fx.fillRect(0, 0, VW, VH); }
+      if (ev.kind === 'aurora') {
+        fx.globalCompositeOperation = 'lighter';
+        for (let b = 0; b < 3; b++) {
+          fx.beginPath();
+          for (let x = 0; x <= VW; x += 24) { const y = VH * (0.08 + b * 0.06) + Math.sin(x * 0.006 + ts * 0.3 + b) * 30 + Math.sin(x * 0.017 - ts * 0.5) * 12; if (x === 0) fx.moveTo(x, y); else fx.lineTo(x, y); }
+          fx.lineTo(VW, 0); fx.lineTo(0, 0); fx.closePath();
+          fx.fillStyle = `rgba(${b === 1 ? '120,90,220' : '60,220,140'},${0.07 + 0.03 * Math.sin(ts * 0.7 + b)})`; fx.fill();
+        }
+        fx.globalCompositeOperation = 'source-over';
+      }
+    }
+    // outono: folhas caindo e rodopiando pela tela
+    if (sim.season === 1 && L > 0.25) for (let k = 0; k < 26; k++) {
+      const sp = 0.05 + (k % 5) * 0.012, u = (ts * sp + (h32(k, 41, seed) % 1000) / 1000) % 1;
+      const x = ((h32(k, 42, seed) % 1000) / 1000) * VW + Math.sin(ts * 1.3 + k) * 30 + u * (40 + wx.wind * 160), y = u * VH;
+      fx.fillStyle = ['#d88a30', '#c8642a', '#e8b040', '#a8502a'][k % 4]!;
+      fx.save(); fx.translate(x, y); fx.rotate(ts * 2 + k); fx.fillRect(-3, -1.5, 6, 3); fx.restore();
+    }
     // céu refletido nos lagos: estrelas piscando e estrela cadente
-    if (L < 0.4 && wx.cloud < 0.6) {
+    if (L < 0.4 && wx.cloud < 0.6 && sim.season !== 2) {
       const a0 = (1 - L) * (1 - wx.cloud), x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
       for (const i of this.cells('water')) {
         const x = i % COLS, y = (i / COLS) | 0, hh = h32(x, y, seed + 13);

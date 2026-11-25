@@ -65,3 +65,19 @@ export function nightTune(genesis: number, fire = 0): number[] {
   for (let k = 0; k < 16; k++) { n = Math.max(0, Math.min(7, n + [-2, -1, -1, 0, 1, 1, 2][Math.floor(r() * 7)]!)); out.push(n); }
   return out;
 }
+
+/**
+ * Céu de verdade: chuvas de meteoros (picos anuais), eclipses lunares das datas reais
+ * e, raramente, uma aurora de inverno (essa é licença poética). Pela data local do dia.
+ */
+export interface SkyEvent { kind: 'meteoros' | 'eclipse' | 'aurora'; name: string }
+const SHOWERS: [number, number, string][] = [[1, 3, 'Quadrântidas'], [4, 22, 'Líridas'], [5, 6, 'Eta Aquáridas'], [8, 12, 'Perseidas'], [8, 13, 'Perseidas'], [10, 21, 'Oriônidas'], [11, 17, 'Leônidas'], [12, 13, 'Geminídeas'], [12, 14, 'Geminídeas']];
+const ECLIPSES = ['2026-03-03', '2026-08-28', '2027-02-20', '2027-07-18', '2027-08-17', '2028-01-12', '2028-07-06', '2028-12-31', '2029-06-26', '2029-12-20', '2030-06-15', '2030-12-09'];
+export function skyEventFor(genesis: number, tzHours: number, season: number, seed: number): SkyEvent | null {
+  const d = new Date(genesis + tzHours * 3_600_000 + 12 * 3_600_000), m = d.getUTCMonth() + 1, day = d.getUTCDate(), iso = d.toISOString().slice(0, 10);
+  if (ECLIPSES.includes(iso)) return { kind: 'eclipse', name: 'Eclipse lunar: a lua fica vermelha esta noite' };
+  const sh = SHOWERS.find(([mm, dd]) => mm === m && dd === day);
+  if (sh) return { kind: 'meteoros', name: `Chuva de meteoros ${sh[2]} esta noite` };
+  if (season === 2 && h32(Math.floor(genesis / 86_400_000), 61, seed) % 25 === 0) return { kind: 'aurora', name: 'Aurora no céu de inverno! Coisa rara por aqui' };
+  return null;
+}

@@ -170,7 +170,7 @@ function renderStatus(): void {
   const sky = w.kind === 'limpo' ? 'céu limpo' : w.kind;
   $('weather').textContent = sky + (w.wind > 0.7 && !w.storm ? ' e vento' : '') + (isNight(h) || h >= 20 ? ', noite' : h < 7 ? ', amanhecer' : h >= 17.5 ? ', entardecer' : ', dia');
   const ph = moonPhase(sim.genesis + sim.tick * TICK_MS);
-  drawMoon(ph);
+  drawMoon(ph, sim.sky?.kind === 'eclipse' && (h >= 20 || h < 5));
   $('moonTxt').textContent = MOON[Math.round(ph * 8) % 8]!;
   $('season').textContent = SEASON[sim.season]!;
   $('nPeople').textContent = `${sim.agents.filter(a => a.present).length}/${sim.agents.length}`;
@@ -281,13 +281,13 @@ function bio(a: Agent): string {
 
 const MOON = ['lua nova', 'lua crescente', 'quarto crescente', 'gibosa crescente', 'lua cheia', 'gibosa minguante', 'quarto minguante', 'lua minguante'];
 const SEASON = ['verão', 'outono', 'inverno', 'primavera'];
-function drawMoon(ph: number): void {
+function drawMoon(ph: number, eclipse = false): void {
   const c = $<HTMLCanvasElement>('moon'), g = c.getContext('2d')!, r = 13;
   g.clearRect(0, 0, 32, 32);
   g.fillStyle = '#2a2f3a'; g.beginPath(); g.arc(16, 16, r, 0, 7); g.fill();
   // parte iluminada: meia lua de um lado + elipse que cresce ou encolhe
   const waxing = ph < 0.5, k = Math.cos(ph * Math.PI * 2);
-  g.fillStyle = '#f2ecd8'; g.beginPath();
+  g.fillStyle = eclipse ? '#c0503a' : '#f2ecd8'; g.beginPath();
   g.arc(16, 16, r, -Math.PI / 2, Math.PI / 2, !waxing);
   g.ellipse(16, 16, Math.abs(k) * r, r, 0, Math.PI / 2, -Math.PI / 2, waxing ? k > 0 : k < 0);
   g.fill();

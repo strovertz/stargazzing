@@ -75,6 +75,7 @@ export class GroundCache {
     g.font = `700 ${Math.max(3, Math.round(sh * 1.45))}px "JetBrains Mono",monospace`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
+    const ice = this.sim.season === 2;
     const isWater = (x: number, y: number) => x < 0 || y < 0 || x >= COLS || y >= ROWS || T[y * COLS + x]! <= Tile.Shallow;
     for (let ly = 0; ly < CHUNK; ly++) for (let lx = 0; lx < CHUNK; lx++) {
       const x = cx * CHUNK + lx, y = cy * CHUNK + ly;
@@ -83,6 +84,7 @@ export class GroundCache {
       const trail = (t === Tile.Grass || t === Tile.Forest || t === Tile.Sand) && w >= 6;
       const dc = deco[i]!;
       g.fillStyle = trail ? '#17120c' : dc === 6 && t === Tile.Forest ? '#060d08' : dc === 1 && t > Tile.Shallow ? '#16241a' : t === Tile.Floor && ruinCh[i] === 'q' ? '#2a2824' : t === Tile.Floor && ruinCh[i] === 'r' ? '#1c1a14' : t === Tile.Wall && ruinCh[i] === 'f' ? BG[3]! : t === Tile.Floor && ruinCh[i] ? (ruinCh[i] === 'a' ? '#23251f' : ruinCh[i] === 'p' || ruinCh[i] === 'b' ? '#2a1a0e' : '#2a2923') : BG[t]!;
+      if (ice && t <= Tile.Shallow) g.fillStyle = t === Tile.Deep ? '#2a3a46' : '#34485a';
       g.fillRect(lx * cw, ly * ch, cw + 0.5, ch + 0.5);
       const shore = t <= Tile.Shallow && (!isWater(x - 1, y) || !isWater(x + 1, y) || !isWater(x, y - 1) || !isWater(x, y + 1));
       for (let j = 0; j < SY; j++) for (let k = 0; k < SX; k++) {
@@ -121,6 +123,9 @@ export class GroundCache {
         } else if (t === Tile.Sand) { if (roll < 55) { chr = pick(['.', '·', ',', '`'], hh >>> 6); col = pick(SAND_T, hh >>> 11); } }
         else if (t === Tile.Rock) {
           if (roll < 75) { const lit = k === 0 || j === 0 ? 1 : 0, peak = H[i]! > 0.62 ? 1 : 0; chr = pick(['^', '#', '%', 'A', '^'], hh >>> 6); col = ROCK_T[Math.min(3, ((hh >>> 11) % 2) + lit + peak)]!; }
+        } else if (t <= Tile.Shallow && ice) {
+          // inverno: o lago congela (riscos de patins e brilho do gelo)
+          if (roll < 45) { chr = pick(['-', '=', '·', '/', '-'], hh >>> 6); col = roll < 10 ? '#e8f4ff' : roll < 30 ? '#9fc0d4' : '#6f8ea4'; }
         } else if (t <= Tile.Shallow) {
           if (shore && roll < 40) { chr = pick(['·', '°', '~', '.'], hh >>> 6); col = roll < 15 ? '#7fb3c8' : '#3f7f9c'; }
           else if (roll < (t === Tile.Deep ? 55 : 70)) { chr = pick(['~', '-', '~', '='], hh >>> 6); col = pick(t === Tile.Deep ? DEEP_T : SHALLOW_T, hh >>> 11); }
