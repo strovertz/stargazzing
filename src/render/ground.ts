@@ -20,6 +20,8 @@ const ROCK_T = ['#34363c', '#474a51', '#5e6169', '#7a7d86'];
 const STONE_T = ['#3c3c44', '#50505a', '#686874', '#84848f'];
 const DEEP_T = ['#0f2d42', '#143a55', '#1b4a6a'];
 const SHALLOW_T = ['#1b4d6a', '#236183', '#2f789c'];
+const MOSS_T = ['#2f5a2c', '#3f7a38', '#4f8a40', '#6a9f4c'];
+const SLAB_T = ['#5a574c', '#6f6b5e', '#878272'];
 const BG: Record<number, string> = { 0: '#06182a', 1: '#0a2536', 2: '#2a241a', 3: '#122a1a', 4: '#0d1f14', 5: '#141518', 6: '#18181d', 7: '#101013' };
 
 export class GroundCache {
@@ -79,7 +81,7 @@ export class GroundCache {
       if (x >= COLS || y >= ROWS) continue;
       const i = y * COLS + x, t = T[i]!, w = wear[i]!;
       const trail = (t === Tile.Grass || t === Tile.Forest || t === Tile.Sand) && w >= 6;
-      g.fillStyle = trail ? '#17120c' : BG[t]!;
+      g.fillStyle = trail ? '#17120c' : t === Tile.Floor && ruinCh[i] ? (ruinCh[i] === 'a' ? '#23251f' : '#2a2923') : BG[t]!;
       g.fillRect(lx * cw, ly * ch, cw + 0.5, ch + 0.5);
       const shore = t <= Tile.Shallow && (!isWater(x - 1, y) || !isWater(x + 1, y) || !isWater(x, y - 1) || !isWater(x, y + 1));
       for (let j = 0; j < SY; j++) for (let k = 0; k < SX; k++) {
@@ -104,6 +106,18 @@ export class GroundCache {
           const r0 = ruinCh[i]!, lit = k === 0 ? 2 : k === 1 ? 1 : 0;
           chr = r0 === '#' ? pick(['#', '%', '&'], hh >>> 6) : r0 === '_' || r0 === 'n' ? pick(['=', '#', '='], hh >>> 6) : pick(['|', '#', '[', ']'], hh >>> 6);
           col = r0 === '#' && roll < 45 ? '#3f5a3c' : STONE_T[Math.min(3, lit + ((hh >>> 11) % 2))]!;
+        } else if (t === Tile.Floor && ruinCh[i] === 'a') {
+          // lajes da ágora: juntas em grade, musgo nas frestas, raízes e folhas por cima
+          const moss = M[i]! + ((hh >>> 20) % 100) / 220 > 0.18, root = h32(x >> 1, y, seed + 5) % 9 === 0;
+          if (root && j === 1 + (x % 2) && roll < 85) { chr = pick(['~', '-', '~', 's'], hh >>> 6); col = '#5a4028'; }
+          else if (k === 0 || j === 0) { chr = k === 0 && j === 0 ? '+' : k === 0 ? '|' : '-'; col = moss && roll < 70 ? pick(MOSS_T, hh >>> 9) : '#3c3a34'; }
+          else if (moss && roll < 55) { chr = pick([',', '"', "'", ';', '*'], hh >>> 6); col = pick(MOSS_T, hh >>> 11); }
+          else if (roll < 35) { chr = pick(['.', ':', '·'], hh >>> 6); col = pick(SLAB_T, hh >>> 11); }
+        } else if (t === Tile.Floor && ruinCh[i] === 's') {
+          chr = j % 2 ? '_' : '='; col = SLAB_T[Math.min(2, (j >> 1) + ((hh >>> 9) % 2))]!;
+        } else if (t === Tile.Floor && ruinCh[i] === 'o') {
+          // tambores de coluna caída
+          chr = pick(['O', '0', '=', 'o'], (hh >>> 6) + k); col = roll < 25 ? pick(MOSS_T, hh >>> 11) : pick(SLAB_T, hh >>> 9);
         } else if (t === Tile.Floor) { if (roll < 45) { chr = pick(['.', ':', '+', '.'], hh >>> 6); col = pick(['#2e2e35', '#3a3a42', '#46464f'], hh >>> 11); } }
         if (!chr) continue;
         g.fillStyle = col;

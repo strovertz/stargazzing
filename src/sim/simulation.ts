@@ -150,7 +150,9 @@ export class Simulation {
       const relax = k > 600, x = 3 + Math.floor(a.r() * (COLS - 7)), y = 4 + Math.floor(a.r() * (ROWS - 6)), i = y * COLS + x;
       let ok = true;
       for (const j of houseCells(i, true)) if (!(T[j] === Tile.Grass || T[j] === Tile.Forest) || !comp[j] || block[j]) ok = false;
+      const ag = this.terrain.agora;
       if (!ok || plazas.some(p => Math.abs(p.x - x) < 10 && Math.abs(p.y - y) < 6)) continue;
+      if (((x - ag.x) / (ag.rx + 6)) ** 2 + ((y - ag.y) / (ag.ry + 4)) ** 2 < 1) continue;
       if (!relax && this.reserved.some(p => Math.abs(p.x - x) < 8 && Math.abs(p.y - y) < 4)) continue;
       this.reserved.push({ x, y });
       return { x, y };
@@ -268,7 +270,7 @@ export class Simulation {
   private startWalk(a: Agent): void {
     a.state = 'WANDER';
     a.phase = 'walk';
-    a.steps = 30 + Math.floor(a.r() * 70);
+    a.steps = 60 + Math.floor(a.r() * 100);
   }
 
   private shore: number[] | null = null;
@@ -305,15 +307,16 @@ export class Simulation {
   /** Máquina de estados: pesos por temperamento, hora e clima, sorteados pelo PRNG do morador. */
   private decide(a: Agent): void {
     const h = hourAt(this.tick), night = isNight(h), wx = this.weather(), rain = wx.rain > 0.3, evening = h >= 18 && h < 22.5;
-    const storm = wx.storm ? 1 : 0, fog = wx.fog > 0.35 ? 1 : 0;
+    const storm = wx.storm ? 1 : 0, fog = wx.fog > 0.35 ? 1 : 0, day = h >= 7 && h < 18;
     const thirsty = !!a.tree && this.tick - a.tree.lastWater > 1600;
     const w: [State, number][] = [
       ['WANDER', (0.4 + a.traits.wander * 1.2) * (night ? 0.25 : 1) * (fog ? 0.5 : 1) * (storm ? 0.05 : 1)],
       ['WATER', a.tree ? (thirsty && !rain ? 1.8 : 0.12) * (0.4 + a.traits.gardener) : 0],
-      ['REST', (1.1 - a.traits.energy) * 0.8 + (night ? 3.2 : 0) + (rain ? 1.4 : 0) + storm * 8],
+      ['REST', (1.1 - a.traits.energy) * (night ? 0.8 : 0.25) + (night ? 3.2 : 0) + (rain ? 1 : 0) + storm * 8],
       ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1) * (storm ? 0.05 : 1)],
       ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : 0.35) * (rain ? 0.2 : 1) * (1 - storm)],
       ['FISH', (0.15 ) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1)],
+      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm)],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
     let st: State = 'REST';
@@ -331,6 +334,17 @@ export class Simulation {
       a.friend = f;
       const fy = f.home.y + 1;
       return fy < ROWS && this.terrain.passable(fy * COLS + f.home.x) ? this.goTo(a, f.home.x, fy) : this.goTo(a, f.home.x, f.home.y);
+    }
+    if (st === 'AGORA') {
+      // passeio pela ágora: um ponto livre qualquer entre as colunas
+      const ag = this.terrain.agora;
+      a.plaza = this.terrain.plazas[0]!;
+      for (let k = 0; k < 20; k++) {
+        const ang = a.r() * Math.PI * 2, rr = 0.25 + a.r() * 0.6;
+        const x = Math.round(ag.x + Math.cos(ang) * ag.rx * rr), y = Math.round(ag.y + Math.sin(ang) * ag.ry * rr);
+        if (this.terrain.passable(y * COLS + x)) return this.goTo(a, x, y);
+      }
+      return this.startWalk(a);
     }
     a.plaza = this.nearestPlaza(a);
     const gx = a.plaza.x + Math.floor(a.r() * 3) - 1, gy = a.plaza.y + 1;
@@ -385,11 +399,12 @@ export class Simulation {
     if (a.phase === 'go') {
       if (a.state === 'ARRIVE') { a.state = 'PLANT'; a.phase = 'stay'; a.wait = 16; a.bubble = '+'; a.bubbleUntil = tick + 16; return; }
       if (a.state === 'GATHER') { a.phase = 'boid'; a.boidLeft = 60 + Math.floor(a.r() * 90); return; }
+      if (a.state === 'AGORA') { a.phase = 'boid'; a.boidLeft = 50 + Math.floor(a.r() * 110); return; }
       a.phase = 'stay';
       const night = isNight(hourAt(tick));
-      a.wait = a.state === 'WATER' ? 14 : a.state === 'REST' ? Math.floor((120 + a.r() * 300) * (night ? 2.5 : 1)) : 40 + Math.floor(a.r() * 60);
+      a.wait = a.state === 'WATER' ? 14 : a.state === 'REST' ? (night ? Math.floor((120 + a.r() * 300) * 2.5) : 40 + Math.floor(a.r() * 100)) : 40 + Math.floor(a.r() * 60);
       if (a.state === 'WATER') { a.bubble = '¨'; a.bubbleUntil = tick + 14; }
-      if (a.state === 'REST') { a.bubble = 'z'; a.bubbleUntil = tick + a.wait; }
+      if (a.state === 'REST' && night) { a.bubble = 'z'; a.bubbleUntil = tick + a.wait; }
       const f = a.friend;
       if (a.state === 'VISIT' && f && Math.abs(f.x - a.x) < 4 && Math.abs(f.y - a.y) < 3) {
         a.bubble = '♥'; a.bubbleUntil = tick + a.wait; f.bubble = '♥'; f.bubbleUntil = tick + a.wait;

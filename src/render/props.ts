@@ -72,3 +72,46 @@ export function drawFire(g: CanvasRenderingContext2D, x: number, y: number, cw: 
   }
   g.restore();
 }
+
+const MARBLE = ['#4a4840', '#6b675b', '#8c8676', '#aaa492', '#c4bead'];
+const MOSS = ['#2f5a2c', '#3f7a38', '#5a9a48', '#7ab85a'];
+/**
+ * Coluna dórica antiga: base, fuste canelado, capitel; quebrada termina em lascas.
+ * Musgo sobe do pé e algumas têm hera descendo do topo.
+ */
+export function columnSprite(kind: number, hgt: number, variant: number, cw: number, ch: number, dpr: number) {
+  const key = `col|${kind}|${hgt.toFixed(2)}|${variant}|${cw}|${ch}|${dpr}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const sw = (cw / 3) * dpr, sh = (ch / 4) * dpr, cols = 5, rows = Math.max(3, Math.round(hgt * 15));
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(cols * sw); c.height = Math.ceil((rows + 1) * sh);
+  const g = c.getContext('2d')!;
+  g.font = `700 ${Math.max(3, Math.round(sh * 1.45))}px "JetBrains Mono",monospace`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const put = (chr: string, col: string, i: number, j: number, bg?: string) => {
+    if (bg) { g.fillStyle = bg; g.fillRect(i * sw - 0.3, j * sh - 0.3, sw + 0.6, sh + 0.6); }
+    g.fillStyle = col; g.fillText(chr, (i + 0.5) * sw, (j + 0.5) * sh);
+  };
+  const ivy = variant % 3 === 0, mossH = 2 + (variant % 4);
+  for (let j = 0; j <= rows; j++) {
+    const fromBottom = rows - j, top = j === 0, cap = kind === 0 && j <= 1, base = fromBottom === 0;
+    for (let i = 0; i < cols; i++) {
+      const hh = h32(i, j, 91 + variant), edge = i === 0 || i === cols - 1;
+      if (!cap && !base && edge) continue; // fuste é mais estreito que capitel e base
+      const lit = i <= 1 ? 3 : i === 2 ? 2 : 1;
+      let chr: string, col = MARBLE[lit]!, bg = MARBLE[lit - 1];
+      if (cap) chr = j === 0 ? '=' : '#';
+      else if (base) chr = i === 0 ? '[' : i === cols - 1 ? ']' : '_';
+      else if (top && kind === 1) { chr = ['^', '/', '\\', 'v'][hh % 4]!; if (hh % 3 === 0) continue; }
+      else chr = i === 2 ? ':' : '|';
+      if (fromBottom < mossH && hh % 3 !== 0) { chr = [',', '"', ';', '%'][hh % 4]!; col = MOSS[Math.min(3, (hh >>> 4) % 3 + (fromBottom === 0 ? 0 : 1))]!; }
+      if (ivy && i === 3 && j > 1 && j < rows * 0.7 && hh % 4 !== 0) { chr = ['§', '{', '&', '}'][hh % 4]!; col = MOSS[2 + ((hh >>> 3) % 2)]!; }
+      if (hh % 29 === 0 && !cap) { chr = '/'; col = '#2e2c26'; } // rachadura
+      put(chr, col, i, j, bg);
+    }
+  }
+  const s = { canvas: c, w: c.width / dpr, h: c.height / dpr };
+  cache.set(key, s);
+  return s;
+}

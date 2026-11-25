@@ -1,11 +1,11 @@
 import { css, hex, mix, type RGB } from '../core/color';
 import { h32 } from '../core/rng';
-import { COLS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, Tile } from '../sim/constants';
+import { COLS, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, Tile } from '../sim/constants';
 import { hourAt, stageOf, type Simulation } from '../sim/simulation';
 import { lightningAt } from '../sim/weather';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
-import { clearPropCache, drawFire, houseSprite } from './props';
+import { clearPropCache, columnSprite, drawFire, houseSprite } from './props';
 import { spritesFor } from './sprites';
 import { clearTreeCache, treeSprite } from './trees';
 
@@ -52,6 +52,7 @@ export class Renderer {
     this.bx = bgc.getContext('2d')!;
     this.fx = fgc.getContext('2d')!;
     this.mx = miniCanvas.getContext('2d')!;
+    miniCanvas.width = COLS; miniCanvas.height = ROWS;
     this.dx = this.dark.getContext('2d')!;
     this.mini.width = COLS;
     this.mini.height = ROWS;
@@ -68,7 +69,14 @@ export class Renderer {
     this.dark.width = Math.ceil(this.VW * DARK_SCALE); this.dark.height = Math.ceil(this.VH * DARK_SCALE);
     clearTreeCache();
     clearPropCache();
+    if (this.zi < this.minZi()) { this.zi = this.minZi(); this.zoom = ZOOMS[this.zi]!; this.warm = true; }
     this.clampCam();
+  }
+
+  /** Menor zoom em que o mapa ainda cobre a tela inteira: nunca sobram faixas pretas. */
+  minZi(): number {
+    for (let i = 0; i < ZOOMS.length; i++) if (ZOOMS[i]! * CW * COLS >= this.VW && ZOOMS[i]! * CH * ROWS >= this.VH) return i;
+    return ZOOMS.length - 1;
   }
 
   setSim(sim: Simulation): void { this.sim = sim; this.groundCache.setSim(sim); this.miniVersion = -1; this.dirty = true; this.warm = true; }
@@ -86,7 +94,7 @@ export class Renderer {
   }
 
   setZoom(nz: number, px = this.VW / 2, py = this.VH / 2): void {
-    nz = Math.max(0, Math.min(ZOOMS.length - 1, nz));
+    nz = Math.max(this.minZi(), Math.min(ZOOMS.length - 1, nz));
     if (nz === this.zi) return;
     const { ox, oy } = this.view();
     const wx = ox + px / (CW * this.zoom), wy = oy + py / (CH * this.zoom);
@@ -198,6 +206,22 @@ export class Renderer {
     fx.fillStyle = 'rgba(0,0,0,.35)';
     for (const a of list) { const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)); fx.beginPath(); fx.ellipse(sx(a.px + (a.x - a.px) * f), sy(a.py + (a.y - a.py) * f) - 2 * z, 5 * sc, 1.6 * sc, 0, 0, 7); fx.fill(); }
 
+    // flores: brotam das trilhas esquecidas e balançam com o vento
+    const fl: { x: number; y: number }[] = [];
+    if (z >= 0.65) {
+      const x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
+      fx.font = `700 ${Math.round(ch * 0.62)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const f = sim.flower[y * COLS + x];
+        if (!f) continue;
+        fl.push({ x, y });
+        const hh = h32(x, y, 17), bx = sx(x) + ((hh % 7) - 3) * cs * 0.08, by = sy(y) - ch * 0.35, sway = Math.sin(ts * (1 + wx.wind * 2) + x * 0.7) * cs * 0.06 * (0.5 + wx.wind);
+        fx.fillStyle = '#3f7a38'; fx.fillText('|', bx, by + ch * 0.12);
+        fx.fillStyle = FLOWERS[f - 1]!; fx.fillText(hh % 3 ? '*' : '@', bx + sway, by - ch * 0.12);
+        if (hh % 4 === 0) { fx.fillStyle = FLOWERS[(f + 1) % FLOWERS.length]!; fx.fillText('*', bx + cs * 0.3 + sway, by); }
+      }
+    }
+
     // tudo que tem altura, na ordem de profundidade
     type D = { y: number; draw: () => void };
     const ds: D[] = [];
@@ -205,13 +229,18 @@ export class Renderer {
       const wind = sim.terrain.noise(t.x * 0.06 - ts * (0.2 + wx.wind * 0.5), t.y * 0.12, ts * 0.05), sk = wind * (0.02 + wx.wind * 0.11) + Math.sin(ts * (1.2 + wx.wind * 1.5) + t.x) * (0.004 + wx.wind * 0.012);
       ds.push({ y: t.y + 0.01, draw: () => { fx.save(); fx.translate(sx(t.x), sy(t.y)); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h); fx.restore(); } });
     }
+    for (const col of sim.terrain.columns) {
+      if (col.kind === 2 || !inV(col.x, col.y, 6)) continue;
+      const spr = columnSprite(col.kind, col.h, h32(col.x, col.y, 3) % 12, cs, ch, this.dpr);
+      ds.push({ y: col.y + 0.03, draw: () => fx.drawImage(spr.canvas, sx(col.x) - spr.w / 2, sy(col.y) - spr.h + ch * 0.15, spr.w, spr.h) });
+    }
     for (const { a, spr } of houses) ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(a.home.x - HOUSE_DX) - spr.w / 2, sy(a.home.y) - spr.h + ch * 0.1, spr.w, spr.h) });
     for (const a of list) {
       const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)), wx = a.px + (a.x - a.px) * f, wy = a.py + (a.y - a.py) * f, moving = f < 1;
       const p = { x: sx(wx), y: sy(wy) };
       this.screen.set(a, p);
       ds.push({ y: wy, draw: () => {
-        const spr = spritesFor(a.name, a.look), sleeping = a.phase === 'stay' && a.state === 'REST';
+        const spr = spritesFor(a.name, a.look), sleeping = a.phase === 'stay' && a.state === 'REST' && (h >= 21.5 || h < 6.5);
         const fr = sleeping ? spr.sleep : moving && Math.floor((tf * 4) / a.pace) % 2 ? spr.step : spr.stand, bob = moving && fr === spr.step ? -sc : 0;
         fx.save(); fx.translate(p.x, p.y - 14 * sc - z + bob); if (a.face < 0) fx.scale(-1, 1); fx.drawImage(fr, -4 * sc, 0, 8 * sc, 14 * sc); fx.restore();
       } });
@@ -265,6 +294,47 @@ export class Renderer {
       fx.fillStyle = `rgba(220,255,140,${(0.5 + 0.5 * Math.sin(ts * 3 + k)) * 0.85})`;
       fx.beginPath(); fx.arc(px, py, 1.4, 0, 7); fx.fill();
     }
+    // vida no mapa: borboletas nas flores, peixes pulando, folhas no vento e bandos de pássaros
+    fx.textAlign = 'center'; fx.textBaseline = 'middle';
+    if (L > 0.6 && wx.rain < 0.2) {
+      fx.font = `700 ${Math.round(9 + 3 * z)}px "JetBrains Mono",monospace`;
+      for (let k = 0; k < Math.min(14, fl.length); k++) {
+        const f = fl[h32(k, 41, seed) % fl.length]!, ph = ts * (2 + (k % 3)) + k;
+        fx.fillStyle = ['#ffd36b', '#f07aa8', '#9fd8ff', '#ffffff'][k % 4]!;
+        fx.fillText(Math.sin(ph * 6) > 0 ? 'v' : '-', sx(f.x) + Math.sin(ph * 0.7) * cs * 1.6, sy(f.y) - ch * (0.9 + 0.5 * Math.sin(ph * 0.9)));
+      }
+    }
+    if (z >= 0.65) {
+      // peixe pulando: um anel que abre na água visível
+      for (let k = 0; k < 6; k++) {
+        const slot = Math.floor(ts / 3 + k / 6), life = ((ts / 3 + k / 6) % 1);
+        const x = Math.floor(ox + ((h32(slot, k, seed) % 1000) / 1000) * vw), y = Math.floor(oy + ((h32(slot, k + 9, seed) % 1000) / 1000) * vh);
+        if (x < 0 || y < 0 || x >= COLS || y >= ROWS || sim.terrain.T[y * COLS + x]! > Tile.Shallow) continue;
+        fx.strokeStyle = `rgba(170,215,235,${0.55 * (1 - life)})`; fx.lineWidth = 1;
+        fx.beginPath(); fx.ellipse(sx(x), sy(y) - ch * 0.5, cs * (0.2 + life * 1.4), ch * (0.08 + life * 0.35), 0, 0, 7); fx.stroke();
+        if (life < 0.25) { fx.fillStyle = '#b8d8e8'; fx.font = `700 ${Math.round(10 + 3 * z)}px "JetBrains Mono",monospace`; fx.fillText('>', sx(x), sy(y) - ch * (0.6 + Math.sin(life * 4 * Math.PI) * 0.6)); }
+      }
+    }
+    if (wx.wind > 0.45 && L > 0.2) {
+      const n = Math.round((wx.wind - 0.45) * 60);
+      fx.font = `700 ${Math.round(9 + 3 * z)}px "JetBrains Mono",monospace`;
+      for (let k = 0; k < n; k++) {
+        const sp = 60 + (h32(k, 61, seed) % 80) * (0.5 + wx.wind);
+        const px = ((((h32(k, 62, seed) % 1000) / 1000) * (VW + 200) + ts * sp) % (VW + 200)) - 100, py = (((h32(k, 63, seed) % 1000) / 1000) * VH + Math.sin(ts * 1.3 + k) * 30 + ts * 18) % VH;
+        fx.fillStyle = ['#7a9a3c', '#a8892f', '#8a5a2a', '#5f8a3a'][k % 4]!;
+        fx.fillText(Math.sin(ts * 5 + k) > 0 ? ',' : '`', px, py);
+      }
+    }
+    if (L > 0.7 && wx.rain < 0.3) {
+      // bando de pássaros cruzando a tela a cada ~45 s
+      const cyc = ts / 45, slot = Math.floor(cyc), f = cyc - slot;
+      if (f < 0.35 && h32(slot, 71, seed) % 2 === 0) {
+        const dir = h32(slot, 72, seed) % 2 ? 1 : -1, bx = dir > 0 ? -100 + (f / 0.35) * (VW + 200) : VW + 100 - (f / 0.35) * (VW + 200), by = 60 + (h32(slot, 73, seed) % 1000) / 1000 * VH * 0.5;
+        fx.font = `700 ${Math.round(11 + 2 * z)}px "JetBrains Mono",monospace`; fx.fillStyle = 'rgba(20,24,28,.75)';
+        for (let k = 0; k < 7; k++) { const row = Math.ceil(k / 2), side = k % 2 ? 1 : -1; fx.fillText(Math.sin(ts * 9 + k) > 0 ? 'v' : '-', bx - dir * row * 14, by + side * row * 9 + Math.sin(ts * 2 + k) * 3); }
+      }
+    }
+
     // neblina: véu claro e bancos de névoa que derivam com o vento
     if (wx.fog > 0.05) {
       fx.fillStyle = `rgba(170,182,196,${wx.fog * 0.22})`;

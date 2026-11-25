@@ -21,7 +21,7 @@
     <div class="seg glass"><button id="sound" aria-pressed="false" aria-label="Ligar som ambiente" title="Som ambiente">♪ off</button></div>
     <div class="seg glass" role="group" aria-label="Zoom"><button id="zout" aria-label="Diminuir zoom">−</button><button id="zin" aria-label="Aumentar zoom">+</button></div>
   </div>
-  <div class="mini glass"><canvas id="mini" width="200" height="96" aria-label="Minimapa: clique para ir até o ponto"></canvas></div>
+  <div class="mini glass"><canvas id="mini" width="320" height="96" aria-label="Minimapa: clique para ir até o ponto"></canvas></div>
   <div class="hint glass" id="hint">Arraste para andar pelo mapa · role para zoom · clique num morador</div>
   <div class="fabs">
     <button class="fab glass" id="openHow">Como funciona</button>
@@ -32,9 +32,10 @@
     <ol class="how">
       <li><b>Uma star, um morador.</b> O hash do login define aparência, chapéu, espécie da árvore, ritmo e temperamento. Mesmo nome, mesmo personagem, em qualquer navegador.</li>
       <li><b>Chegada.</b> O morador entra pela borda, constrói uma cabana, planta a árvore dele e passa a viver ali.</li>
-      <li><b>Máquina de estados.</b> Passear, regar, descansar, visitar vizinhos e ir para a roda nas ruínas, com pesos pelo temperamento, pela hora e pelo clima.</li>
+      <li><b>Máquina de estados.</b> Passear, regar, descansar, pescar, visitar vizinhos, conversar, ir à ágora e à roda da fogueira, com pesos pelo temperamento, pela hora e pelo clima.</li>
       <li><b>Formiga de Langton.</b> No passeio, cada passo vira à direita ou à esquerda conforme a célula e a inverte. O uso gasta a grama em trilha; trilha esquecida vira flor.</li>
-      <li><b>Boids.</b> Na roda das ruínas o grupo se junta com separação, alinhamento e coesão.</li>
+      <li><b>Boids.</b> Na roda da fogueira e na ágora o grupo se junta com separação, alinhamento e coesão.</li>
+      <li><b>Ágora.</b> No centro do mapa fica uma praça grega muito antiga, engolida pela floresta: lajes com musgo e raízes, colunas inteiras, quebradas e caídas, escadaria ao sul e um braseiro no meio. De dia os moradores passeiam por lá; à noite vira a maior roda.</li>
       <li><b>Ruído Perlin.</b> Relevo, lagos, matas, vento na grama, ondas e chuva.</li>
       <li><b>Fogueiras.</b> Ficam nas ruínas e em acampamentos. No fim do dia os moradores fazem roda em volta delas; à noite são a principal fonte de luz.</li>
       <li><b>Clima.</b> Céu limpo, nublado, neblina de manhã, garoa, chuva e tempestade com relâmpagos, mais a força do vento, saem de ruído Perlin sobre o horário real. Na tempestade todo mundo corre para casa; na neblina passeiam menos e pescam mais.</li>

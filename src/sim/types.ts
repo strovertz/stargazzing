@@ -2,7 +2,7 @@ import type { RGB } from '../core/color';
 import type { Rng } from '../core/rng';
 import type { Hat } from './constants';
 
-export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT';
+export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA';
 export type Phase = 'go' | 'stay' | 'walk' | 'boid';
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string }
@@ -12,6 +12,8 @@ export interface Plaza extends Point { main: boolean }
 
 export interface Tree { x: number; y: number; sp: number; growth: number; lastWater: number }
 export interface WildTree { x: number; y: number; big: boolean; sp: number }
+/** Coluna da ágora: 0 inteira, 1 quebrada, 2 caída (tambores no chão). */
+export interface Column { x: number; y: number; kind: 0 | 1 | 2; h: number }
 
 export interface AgentMeta { days?: number; local?: boolean; starredAt?: number }
 
