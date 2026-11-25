@@ -1,6 +1,6 @@
 import { hsl } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
-import { PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
+import { INSTRUMENTS, PET_NAMES, PETS, PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
 import { affinity, commitBias, COUPLE_AT, ecosystem, FRIEND_AT, isFullMoon, merchantFor, RIVAL_AT } from './extras';
 import { age, lookFrom } from './look';
 import { Terrain } from './world';
@@ -235,6 +235,26 @@ export class Simulation {
     if (announce) this.note(`Conselho na ágora: a vila votou e a próxima obra será ${swap ? next[1]!.kind : next[0]!.kind}`, 'evento');
   }
 
+  /** No conselho, um par de rivais presentes faz as pazes (e vira amigo). */
+  private makePeace(): void {
+    for (const a of this.agents) {
+      const b = a.rivals.find(r => r.present && r.state === 'AGORA');
+      if (!a.present || a.state !== 'AGORA' || !b) continue;
+      a.rivals = a.rivals.filter(r => r !== b); b.rivals = b.rivals.filter(r => r !== a);
+      a.friends.push(b); b.friends.push(a);
+      a.bubble = b.bubble = '♥'; a.bubbleUntil = b.bubbleUntil = this.tick + 20;
+      this.note(`${a.name} e ${b.name} fizeram as pazes no conselho`, 'amizade');
+      return;
+    }
+  }
+
+  private give(a: Agent, b: Agent, item: string): void {
+    const k = a.items.indexOf(item);
+    if (k >= 0) a.items.splice(k, 1);
+    b.items.push(`${item} (de ${a.name})`);
+    if (b.items.length > 12) b.items.shift();
+  }
+
   /** Notas do começo do dia: forks recentes, pedidos e o ecossistema. */
   private startNotes(): void {
     const day = this.genesis;
@@ -358,6 +378,7 @@ export class Simulation {
     if (t === Math.round(20 * TICKS_PER_HOUR) && this.weekday === 5) this.note('Corrida de vaga-lumes em volta da ágora', 'evento');
     if (t === Math.round(19.5 * TICKS_PER_HOUR) && this.weekday === WED) this.applyVote(this.weekOf(t), true);
     if (t === Math.round(19 * TICKS_PER_HOUR) && this.weekday === WED) this.note('O conselho se reúne na ágora', 'evento');
+    if (t === Math.round(19.75 * TICKS_PER_HOUR) && this.weekday === WED) this.makePeace();
     if (t === Math.round(9 * TICKS_PER_HOUR) && this.merchantPath.length) this.note(`O mercador ${this.merchant} chegou pelo oeste com sua carroça`, 'github');
     if (t === Math.round(0.75 * TICKS_PER_HOUR) && this.deerAt(t)) this.note('Lua cheia: alguém jura ter visto o cervo branco entre as árvores', 'lenda');
     for (const q of this.requests) {
@@ -417,7 +438,9 @@ export class Simulation {
       traits: { energy: 0.25 + r() * 0.75, social: r(), gardener: r(), wander: r() },
       arriveTick, meta, present: false, x: 0, y: 0, px: 0, py: 0, mt: 0, face: 1, state: 'ARRIVE', phase: 'go', wait: 0, path: [],
       dir: Math.floor(r() * 4), steps: 0, boidLeft: 0, mv: [0, 0], tree: null, friend: null, plaza: null, bubble: '', bubbleUntil: 0, hut: false,
-      home: { x: 0, y: 0 }, chatAt: -9999, friends: [], rivals: [], partner: null, inside: false, crystals: 0,
+      home: { x: 0, y: 0 }, chatAt: -9999, friends: [], rivals: [], partner: null, inside: false, crystals: 0, items: [],
+      instrument: fnv(name.toLowerCase() + '#inst') % INSTRUMENTS.length,
+      pet: fnv(name.toLowerCase() + '#pet') % 3 === 0 ? { kind: fnv(name.toLowerCase() + '#petk') % PETS.length, name: PET_NAMES[fnv(name.toLowerCase() + '#petn') % PET_NAMES.length]! } : null,
       prof: fnv(name.toLowerCase() + '#prof') % PROFS.length, owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
     };
     a.home = this.pickHome(a, mate?.home);
@@ -591,6 +614,12 @@ export class Simulation {
     return b;
   }
 
+  /** Árvore de vizinho com sede, perto de casa (para ajudar a regar). */
+  private thirstyNear(a: Agent): Tree | null {
+    for (const t of this.trees) if (t !== a.tree && this.tick - t.lastWater > 2600 && Math.abs(t.x - a.home.x) < 40 && Math.abs(t.y - a.home.y) < 20 && !this.isRain()) return t;
+    return null;
+  }
+
   /** Máquina de estados: pesos por temperamento, hora e clima, sorteados pelo PRNG do morador. */
   private decide(a: Agent): void {
     const h = hourAt(this.tick), night = isNight(h), wx = this.weather(), rain = wx.rain > 0.3, evening = h >= 18 && h < 22.5;
@@ -612,7 +641,7 @@ export class Simulation {
       ['BUCKET', fire && Math.abs(fire.x - a.x) < 90 && Math.abs(fire.y - a.y) < 45 ? 40 : 0],
       ['CHOP', prof === 'lenhador' && day ? 0.9 * out : 0],
       ['PLAY', prof === 'músico' && (day || evening) ? 0.8 * out : 0],
-      ['GARDEN', prof === 'jardineiro' && day ? 0.9 * (1 - storm) : 0],
+      ['GARDEN', (prof === 'jardineiro' ? 0.9 : this.thirstyNear(a) ? 0.35 : 0) * (day ? 1 : 0) * (1 - storm)],
       ['SIGHT', day && this.terrain.landmarks.length ? (0.25 + a.traits.wander * 0.5) * (prof === 'explorador' ? 3 : 1) * out : 0],
       ['BOAT', prof === 'pescador' && day && !rain && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
     ];
@@ -623,7 +652,15 @@ export class Simulation {
     a.friend = null;
     if (st === 'WANDER') return this.startWalk(a);
     if (st === 'WATER' || st === 'REST') return this.goTo(a, a.home.x, a.home.y);
-    if (st == 'FISH') {const p = this.fishSpot(a); return p ? this.goTo(a, p.x, p.y) : this.startWalk(a);}
+    if (st === 'FISH') {
+      // pescaria em dupla: se um amigo já está pescando, senta do lado
+      const pal = a.friends.find(b => b.present && b.state === 'FISH' && b.phase === 'stay');
+      if (pal) for (const [dx, dy] of [[1, 0], [-1, 0], [2, 0], [-2, 0], [0, 1]] as const) {
+        const x = pal.x + dx, y = pal.y + dy;
+        if (x > 0 && y > 0 && x < COLS && y < ROWS && this.terrain.passable(y * COLS + x)) { a.friend = pal; if (a.r() < 0.15) this.note(`${a.name} foi pescar com ${pal.name}`, 'amizade'); return this.goTo(a, x, y); }
+      }
+      const p = this.fishSpot(a); return p ? this.goTo(a, p.x, p.y) : this.startWalk(a);
+    }
     if (st === 'MINE') { const c = this.terrain.landmarks.find(l => l.kind === 'caverna')!; return this.goTo(a, c.x, c.y + 1); }
     if (st === 'TASK') { const q = this.terrain.landmarks.find(l => l.kind === 'quadro'); return q ? this.goTo(a, q.x, q.y + 1) : this.startWalk(a); }
     if (st === 'BUCKET') {
@@ -662,7 +699,9 @@ export class Simulation {
       return this.terrain.passable(y * COLS + x) ? this.goTo(a, x, y) : this.startWalk(a);
     }
     if (st === 'GARDEN') {
-      const others = this.trees.filter(t => t !== a.tree);
+      // árvore com sede de um vizinho tem prioridade
+      const dry = this.thirstyNear(a);
+      const others = dry ? [dry] : this.trees.filter(t => t !== a.tree);
       if (!others.length) return this.goTo(a, a.home.x, a.home.y);
       const t = others[Math.floor(a.r() * others.length)]!;
       a.friend = this.agents.find(b => b.tree === t) ?? null;
@@ -763,7 +802,7 @@ export class Simulation {
         // planta uma flor do lado
         const fi = a.y * COLS + a.x + (a.r() < 0.5 ? -1 : 1);
         if (this.terrain.T[fi] === Tile.Grass && !this.flower[fi]) this.flower[fi] = 1 + Math.floor(a.r() * FLOWERS.length);
-        if (a.friend && a.r() < 0.04) this.note(`${a.name} regou a árvore de ${a.friend.name}`, 'trabalho');
+        if (a.friend && (t && this.tick - t.lastWater > 1000 ? a.r() < 0.5 : a.r() < 0.04)) this.note(`${a.name} regou a árvore${t && this.tick - t.lastWater > 1000 ? ' com sede' : ''} de ${a.friend.name}`, 'trabalho');
         return;
       }
       if (a.state === 'BOAT') { a.wait = 200 + Math.floor(a.r() * 300); return; }
@@ -791,7 +830,13 @@ export class Simulation {
       if (a.state === 'VISIT' && f && Math.abs(f.x - a.x) < 4 && Math.abs(f.y - a.y) < 3) {
         const gift = a.r() < 0.4;
         a.bubble = gift ? 'gift' : '♥'; a.bubbleUntil = tick + a.wait; f.bubble = '♥'; f.bubbleUntil = tick + a.wait;
-        if (gift) this.note(`${a.name} levou um presente para ${f.name}`, 'encontro');
+        if (gift) {
+          // presente de verdade: algo que juntou hoje, ou uma flor colhida no caminho
+          const own = a.items.filter(i => !i.includes(' (de '));
+          const item = own.length ? own[Math.floor(a.r() * own.length)]! : ['uma flor', 'um pão', 'uma pinha', 'um desenho'][Math.floor(a.r() * 4)]!;
+          this.give(a, f, item);
+          if (a.r() < 0.35 || item.includes('cristal') || item.includes('dourado')) this.note(`${a.name} deu ${item} para ${f.name}`, 'encontro');
+        }
       }
       return;
     }
@@ -814,13 +859,14 @@ export class Simulation {
     if (a.state === 'PLANT') this.build(a);
     if (a.state === 'MINE' && a.inside) {
       a.inside = false;
-      if (a.r() < 0.5) { a.crystals++; a.bubble = '◆'; a.bubbleUntil = tick + 16; if (a.crystals === 1 || a.r() < 0.1) this.note(`${a.name} saiu da caverna com um cristal`, 'trabalho'); }
+      if (a.r() < 0.5) { a.crystals++; a.items.push('um cristal'); a.bubble = '◆'; a.bubbleUntil = tick + 16; if (a.crystals === 1 || a.r() < 0.1) this.note(`${a.name} saiu da caverna com um cristal`, 'trabalho'); }
     }
     if (a.state === 'WATER' && a.tree) a.tree.lastWater = tick;
     if ((a.state === 'FISH' || a.state === 'BOAT') && a.r() < (PROFS[a.prof] === 'pescador' ? 0.6 : 0.3)) {
       const roll = a.r(), fish = roll < 0.04 ? 'um peixe dourado' : roll < 0.1 ? 'uma bota velha' : ['um lambari', 'uma traíra', 'um bagre'][Math.floor(a.r() * 3)]!;
       a.bubble = fish === 'uma bota velha' ? '?' : '><>'; a.bubbleUntil = tick + 10;
       if (fish === 'um peixe dourado' || fish === 'uma bota velha' || a.r() < 0.08) this.note(`${a.name} pescou ${fish}`, 'pesca');
+      if (fish === 'um peixe dourado' || (a.r() < 0.1 && a.items.length < 8)) a.items.push(fish);
     }
     this.decide(a);
   }
@@ -837,12 +883,18 @@ export class Simulation {
       const pals = a.friends.includes(b);
       if (pals || a.r() < 0.25 + 0.5 * (a.traits.social + b.traits.social) / 2) {
         if (pals && a.r() < 0.05) this.note(`${a.name} e ${b.name}, amigos de longa data, pararam para conversar`, 'amizade');
-        const len = 30 + Math.floor(a.r() * 50);
+        // amigos às vezes sentam para uma partida de dama em vez de só conversar
+        const game = pals && hourAt(tick) >= 8 && hourAt(tick) < 21 && a.r() < 0.3;
+        const len = game ? 90 + Math.floor(a.r() * 90) : 30 + Math.floor(a.r() * 50);
         for (const [p, q] of [[a, b], [b, a]] as const) {
-          p.state = 'CHAT'; p.phase = 'stay'; p.wait = len; p.friend = q; p.path = [];
+          p.state = game ? 'GAME' : 'CHAT'; p.phase = 'stay'; p.wait = len; p.friend = q; p.path = [];
           p.face = q.x > p.x ? 1 : q.x < p.x ? -1 : p.face;
-          p.bubble = '…'; p.bubbleUntil = tick + len;
+          p.bubble = game ? '♟' : '…'; p.bubbleUntil = tick + len;
         }
+        if (game && a.r() < 0.2) { const w = a.r() < 0.5 ? a : b; this.note(`${w.name} ganhou de ${w === a ? b.name : a.name} numa partida de dama`, 'amizade'); }
+        // apresenta um amigo: quem é amigo de um passa a ser amigo do outro
+        const c = a.friends.find(x => x !== b && x.present && !b.friends.includes(x) && !b.rivals.includes(x));
+        if (c && b.friends.length < 6 && c.friends.length < 6 && a.r() < 0.02) { b.friends.push(c); c.friends.push(b); this.note(`${a.name} apresentou ${c.name} para ${b.name}, e os dois viraram amigos`, 'amizade'); }
         return true;
       }
       a.bubble = b.bubble = 'o/';

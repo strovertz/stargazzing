@@ -7,13 +7,13 @@ import { CW, CH, Renderer } from './render/renderer';
 import { spritesFor } from './render/sprites';
 import { Ambience } from './audio/ambience';
 import { lightningAt } from './sim/weather';
-import { PROFS } from './sim/constants';
+import { INSTRUMENTS, PROFS } from './sim/constants';
 import { NEEDS, STARS_PER_COLUMN } from './sim/village';
 import { moonPhase, nightTune } from './sim/extras';
 import type { RepoData } from './sim/types';
 import { Timelapse } from './ui/timelapse';
 
-const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos' };
+const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
@@ -28,6 +28,7 @@ function stateText(a: Agent): string {
   if (!a.present) return `chega às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
   if (a.state === 'VISIT' && a.friend) return `visitando ${a.friend.name}`;
   if (a.state === 'CHAT' && a.friend && a.phase === 'stay') return `conversando com ${a.friend.name}`;
+  if (a.state === 'GAME' && a.friend) return `jogando dama com ${a.friend.name}`;
   if (a.state === 'SIGHT' && a.sight) return `${a.phase === 'stay' ? 'no' : 'indo ao'} ${a.sight}`;
   return STATE_PT[a.state];
 }
@@ -118,7 +119,8 @@ function relations(a: Agent): string {
     a.partner ? `mora ao lado de ${a.partner.name}` : '',
     a.friends.length ? `amigos: ${names(a.friends)}` : '',
     a.rivals.length ? `não se bica com ${names(a.rivals)}` : '',
-    a.crystals ? `${a.crystals} cristal${a.crystals > 1 ? 'is' : ''} da caverna hoje` : '',
+    a.pet ? `tem ${['um cachorro', 'um gato', 'uma galinha', 'um pato', 'um sapo'][a.pet.kind]} chamado ${a.pet.name}` : '',
+    a.items.length ? `guardou hoje: ${a.items.slice(-4).join(', ')}` : '',
   ].filter(Boolean);
   return bits.length ? `${bits.join(' · ')}.` : 'Ainda sem amizades marcantes.';
 }
@@ -160,7 +162,7 @@ function start(): void {
   sim = new Simulation(world, genesisFor(now, tz()));
   if (renderer) renderer.setSim(sim);
   else renderer = new Renderer($<HTMLCanvasElement>('bg'), $<HTMLCanvasElement>('fg'), $<HTMLCanvasElement>('mini'), sim);
-  amb.tune = nightTune(sim.genesis);
+  amb.setTune(nightTune(sim.genesis));
   const p = sim.terrain.plazas[0]!;
   renderer.cam = { x: p.x, y: p.y + 6 };
   renderer.clampCam();
@@ -193,7 +195,7 @@ interface Profile { name?: string; repos?: number; followers?: number; since?: n
 let profiles: Record<string, Profile> = {};
 function bio(a: Agent): string {
   const p = profiles[a.name.toLowerCase()];
-  const prof = PROFS[a.prof]!, owl = a.owl ? ', coruja da vila' : '';
+  const prof = PROFS[a.prof]! + (a.prof === 2 ? ` (${INSTRUMENTS[a.instrument]})` : ''), owl = a.owl ? ', coruja da vila' : '';
   if (!p) return `${prof[0]!.toUpperCase()}${prof.slice(1)}${owl}.`;
   const bits = [
     p.lang ? `Escreve mais em ${p.lang}` : '',
@@ -270,7 +272,10 @@ function updateSound(ts: number): void {
   const crowd = sim.agents.filter(a => a.present && (a.state === 'GATHER' || (a.state === 'PLAY' && a.phase === 'stay')) && Math.abs(a.x - fire.x) < 14 && Math.abs(a.y - fire.y) < 8).length
     + (sim.agents.some(a => a.state === 'PLAY' && a.phase === 'stay' && Math.abs(a.x - fire.x) < 14) ? 2 : 0);
   const day = h >= 6.5 && h < 18.5 ? 1 : h >= 5.5 && h < 19.5 ? 0.5 : 0;
-  amb.update({ rain: w.rain, wind: w.wind, storm: w.storm, day, fire: near, crowd, flash: w.storm ? lightningAt(ts, sim.terrain.seed) : 0 });
+  const players = sim.agents.filter(a => a.present && a.prof === 2 && a.phase === 'stay' && (a.state === 'PLAY' || a.state === 'GATHER') && Math.abs(a.x - fire.x) < 14 && Math.abs(a.y - fire.y) < 8)
+    .concat(sim.agents.filter(a => a.present && a.prof === 2 && a.phase === 'boid' && a.state === 'GATHER' && Math.abs(a.x - fire.x) < 14 && Math.abs(a.y - fire.y) < 8));
+  amb.setTune(nightTune(sim.genesis, sim.terrain.plazas.indexOf(fire)));
+  amb.update({ rain: w.rain, wind: w.wind, storm: w.storm, day, fire: near, crowd, flash: w.storm ? lightningAt(ts, sim.terrain.seed) : 0, voice: players[0]?.instrument ?? 0, duet: players.length >= 2 });
 }
 /** 30 quadros por segundo bastam: o mundo anda a cada 500 ms e o resto é interpolado. */
 const FRAME_MS = 1000 / 30 - 2;

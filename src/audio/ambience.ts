@@ -13,6 +13,9 @@ export interface AmbienceState {
   crowd: number;
   /** brilho do relâmpago agora (0 a 1) */
   flash: number;
+  /** instrumento de quem toca na roda (índice em INSTRUMENTS) e se há dois músicos (dueto) */
+  voice?: number;
+  duet?: boolean;
 }
 
 const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
@@ -28,6 +31,8 @@ export class Ambience {
   private note = 2; private timer = 0;
   /** rádio da taverna: a melodia da noite (sorteada pela data) e a posição nela */
   tune: number[] = []; private ti = 0;
+  /** troca a melodia (cada fogueira tem a sua) e volta ao começo dela */
+  setTune(t: number[]): void { if (t.join() !== this.tune.join()) { this.tune = t; this.ti = 0; } }
   on = false;
 
   /** Precisa vir de um clique (política de autoplay dos navegadores). */
@@ -46,7 +51,9 @@ export class Ambience {
     window.setTimeout(() => { if (!this.on) void this.ctx?.suspend(); }, 900);
   }
 
+  private voice = 0; private duet = false;
   update(s: AmbienceState): void {
+    this.voice = s.voice ?? 0; this.duet = !!s.duet;
     this.st = s;
     if (!this.ctx || !this.on) return;
     const t = this.ctx.currentTime;
@@ -155,20 +162,34 @@ export class Ambience {
   private pluck(at: number, near: number): void {
     const ctx = this.ctx!;
     this.note = this.tune.length ? Math.min(PENTA.length - 1, this.tune[this.ti++ % this.tune.length]!) : Math.max(0, Math.min(PENTA.length - 1, this.note + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)]!));
-    const freq = 220 * 2 ** (PENTA[this.note]! / 12);
-    for (const [mult, vol] of [[1, 1], [2, 0.3]] as const) {
-      const o = ctx.createOscillator(), f = ctx.createBiquadFilter();
-      o.type = 'triangle'; o.frequency.value = freq * mult;
-      f.type = 'lowpass'; f.frequency.setValueAtTime(3200, at); f.frequency.exponentialRampToValueAtTime(400, at + 0.5);
-      o.connect(f).connect(this.env(at, 0.05 * near * vol, 0.005, 0.7));
-      o.start(at); o.stop(at + 0.8);
+    const freq = 220 * 2 ** (PENTA[this.note]! / 12), v = this.voice;
+    if (v === 2) {
+      // tambor: batida grave com pele (seno que despenca) e chiado curto
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(this.note % 2 ? 140 : 95, at); o.frequency.exponentialRampToValueAtTime(50, at + 0.18);
+      o.connect(this.env(at, 0.09 * near, 0.003, 0.25)); o.start(at); o.stop(at + 0.3);
+    } else {
+      // alaúde (triângulo que fecha), flauta (seno com vibrato e ataque lento), harpa (seno longo e brilhante), gaita (quadrada abafada)
+      const type: OscillatorType = v === 1 || v === 3 ? 'sine' : v === 4 ? 'square' : 'triangle';
+      const mul = v === 1 ? 2 : 1, attack = v === 1 ? 0.06 : v === 4 ? 0.03 : 0.005, decay = v === 3 ? 1.4 : v === 1 ? 0.45 : 0.7;
+      const parts: readonly (readonly [number, number])[] = v === 3 ? [[1, 1], [2, 0.4], [3, 0.15]] : v === 1 ? [[1, 1]] : [[1, 1], [2, 0.3]];
+      for (const [m, vol] of parts) {
+        const o = ctx.createOscillator(), f = ctx.createBiquadFilter();
+        o.type = type; o.frequency.value = freq * mul * m;
+        if (v === 1) { const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 5.5; lg.gain.value = freq * 0.012; lfo.connect(lg).connect(o.frequency); lfo.start(at); lfo.stop(at + decay + 0.1); }
+        f.type = 'lowpass';
+        f.frequency.setValueAtTime(v === 4 ? 1400 : 3200, at); f.frequency.exponentialRampToValueAtTime(v === 3 ? 1200 : 400, at + decay * 0.7);
+        o.connect(f).connect(this.env(at, (v === 4 ? 0.025 : 0.05) * near * vol, attack, decay));
+        o.start(at); o.stop(at + attack + decay + 0.1);
+      }
     }
-    // bordão grave a cada compasso
-    if (Math.random() < 0.25) {
-      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 110;
-      o.connect(this.env(at, 0.04 * near, 0.02, 1.2)); o.start(at); o.stop(at + 1.3);
+    // dueto: um segundo músico faz o baixo (tônica e quinta) a cada tempo; sem dueto, bordão de vez em quando
+    if (this.duet ? this.ti % 2 === 0 : Math.random() < 0.25) {
+      const o = ctx.createOscillator(); o.type = this.duet ? 'triangle' : 'sine'; o.frequency.value = this.duet ? (this.ti % 4 === 0 ? 110 : 164.8) : 110;
+      o.connect(this.env(at, (this.duet ? 0.05 : 0.04) * near, 0.02, 1.2)); o.start(at); o.stop(at + 1.3);
     }
   }
+
 
   private thunder(at: number): void {
     const ctx = this.ctx!, src = ctx.createBufferSource(), f = ctx.createBiquadFilter();

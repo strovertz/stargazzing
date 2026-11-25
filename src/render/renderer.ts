@@ -7,7 +7,7 @@ import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
 import { boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, houseSprite, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
 import { spritesFor, toolSprite } from './sprites';
-import { drawAnimals, drawCat, drawDeer } from './animals';
+import { drawAnimals, drawCat, drawDeer, drawPets } from './animals';
 import { lookFor } from '../sim/look';
 import { clearTreeCache, treeSprite } from './trees';
 
@@ -243,11 +243,22 @@ export class Renderer {
     const people = list.map(a => { const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)); return { x: a.px + (a.x - a.px) * f, y: a.py + (a.y - a.py) * f, face: a.face as number }; });
     const view = { sx, sy, inV: (x: number, y: number) => inV(x, y, 2), cs, ch, z };
     drawAnimals(fx, sim, view, ts, L, people);
-    drawCat(fx, sim, view, ts, i => { const a = sim.agents[i]!; const k = list.indexOf(a); return k >= 0 ? people[k]! : null; });
+    const posOf = (i: number) => { const a = sim.agents[i]!; const k = list.indexOf(a); return k >= 0 ? people[k]! : null; };
+    drawCat(fx, sim, view, ts, posOf);
+
+    // tabuleiro de dama no chão entre os dois jogadores
+    for (const a of list) {
+      if (a.state !== 'GAME' || a.phase !== 'stay' || !a.friend || a.name > a.friend.name) continue;
+      const bx = sx((a.x + a.friend.x) / 2), by = sy((a.y + a.friend.y) / 2) - ch * 0.3, q = 2 * z;
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { fx.fillStyle = (i + j) % 2 ? '#2a1a0e' : '#d8c8a0'; fx.fillRect(bx - 4 * q + i * 2 * q, by - 2 * q + j * q, 2 * q, q); }
+      fx.fillStyle = '#c43c3c'; fx.beginPath(); fx.arc(bx - 2 * q, by - q * 1.5, q * 0.6, 0, 7); fx.fill();
+      fx.fillStyle = '#151515'; fx.beginPath(); fx.arc(bx + 2 * q, by + q * 0.5, q * 0.6, 0, 7); fx.fill();
+    }
 
     // tudo que tem altura, na ordem de profundidade
     type D = { y: number; draw: () => void };
     const ds: D[] = [];
+    drawPets(fx, sim, view, ts, posOf, i => { const a = sim.agents[i]!; return a.phase === 'stay' && a.state === 'REST' && (h >= 23 || h < 5.5); }, (y, draw) => ds.push({ y: y - 0.01, draw }));
     for (const { t, spr } of sprites) {
       const wind = sim.terrain.noise(t.x * 0.06 - ts * (0.2 + wx.wind * 0.5), t.y * 0.12, ts * 0.05), sk = wind * (0.02 + wx.wind * 0.11) + Math.sin(ts * (1.2 + wx.wind * 1.5) + t.x) * (0.004 + wx.wind * 0.012);
       ds.push({ y: t.y + 0.01, draw: () => { fx.save(); fx.translate(sx(t.x), sy(t.y)); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h); fx.restore(); } });
@@ -370,7 +381,7 @@ export class Renderer {
           const b = boatSprite(cs, ch, this.dpr); fx.drawImage(b.canvas, bx - b.w / 2, by - b.h * 0.6, b.w, b.h);
         }
         fx.save(); fx.translate(bx, by - 14 * sc - z + bob - (boat ? 4 * sc : 0)); if (face < 0) fx.scale(-1, 1); fx.drawImage(fr, -4 * sc, 0, 8 * sc, 14 * sc);
-        if (!sleeping) fx.drawImage(toolSprite(a.prof), a.prof === 4 ? -6 * sc : 3 * sc, (a.prof === 4 ? 5 : 4) * sc, 4 * sc, 9 * sc);
+        if (!sleeping) fx.drawImage(toolSprite(a.prof, a.instrument), a.prof === 4 ? -6 * sc : 3 * sc, (a.prof === 4 ? 5 : 4) * sc, 4 * sc, 9 * sc);
         fx.restore();
       } });
     }
@@ -625,7 +636,7 @@ export class Renderer {
         continue;
       }
       if (a.bubble && sim.tick <= a.bubbleUntil && !(a.bubble === 'z' && (ts | 0) % 3 === 0)) {
-        fx.fillStyle = a.bubble === '♥' ? '#ff7aa8' : a.bubble === '¨' ? '#7cc4ff' : a.bubble === '♪' ? '#c9a8ff' : a.bubble === '◆' ? '#c8a8ff' : a.bubble === 'hmpf' ? '#e07a5a' : '#f2c14e';
+        fx.fillStyle = a.bubble === '♥' ? '#ff7aa8' : a.bubble === '¨' ? '#7cc4ff' : a.bubble === '♪' ? '#c9a8ff' : a.bubble === '◆' ? '#c8a8ff' : a.bubble === '♟' ? '#e8e2d0' : a.bubble === 'hmpf' ? '#e07a5a' : '#f2c14e';
         fx.fillText(a.bubble, p.x + 7 * sc, p.y - 15 * sc - Math.sin(ts * 2) * 2);
       }
     }

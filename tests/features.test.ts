@@ -84,3 +84,17 @@ describe('cartões SVG', () => {
     expect(villageCard(W.stargazers, GENESIS)).toContain(`${W.stargazers.length} moradores`);
   });
 });
+
+describe('interações', () => {
+  it('pets, instrumentos e um dia com presentes de verdade e partidas de dama', { timeout: 60_000 }, () => {
+    const s = new Simulation(W, GENESIS);
+    expect(s.agents.some(a => a.pet)).toBe(true);
+    expect(new Simulation(W, GENESIS).agents.map(a => a.pet?.name ?? '')).toEqual(s.agents.map(a => a.pet?.name ?? ''));
+    s.runUntil(24 * 7200 - 1);
+    const log = s.log.map(e => e.text).join('\n');
+    expect(log).toMatch(/ deu /);
+    expect(s.agents.some(a => a.items.some(i => i.includes('(de ')))).toBe(true);
+    // amizades nunca ficam pela metade
+    for (const a of s.agents) for (const b of a.friends) expect(b.friends).toContain(a);
+  });
+});

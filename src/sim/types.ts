@@ -4,7 +4,7 @@ import type { Hat } from './constants';
 
 export interface LogEntry { tick: number; text: string; kind: 'chegada' | 'clima' | 'obra' | 'pesca' | 'evento' | 'céu' | 'encontro' | 'trabalho' | 'lenda' | 'amizade' | 'github' }
 
-export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT' | 'MINE' | 'BUCKET' | 'TASK';
+export type State = 'GAME' | 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT' | 'MINE' | 'BUCKET' | 'TASK';
 export type Phase = 'go' | 'stay' | 'walk' | 'boid';
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string; beard?: boolean }
@@ -65,6 +65,12 @@ export interface Agent {
   crystals: number;
   /** marco que está visitando */
   sight?: string;
+  /** índice em INSTRUMENTS (só músicos tocam) */
+  instrument: number;
+  /** bicho de estimação: índice em PETS e nome, ou null */
+  pet: { kind: number; name: string } | null;
+  /** coisas que juntou ou ganhou hoje (peixe dourado, cristal, flor, presentes) */
+  items: string[];
   /** coruja: fica acordado até tarde */
   owl: boolean;
 }

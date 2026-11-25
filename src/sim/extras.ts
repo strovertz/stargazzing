@@ -58,8 +58,9 @@ export function merchantFor(extra: RepoData | undefined, genesis: number, seed: 
 }
 
 /** Melodia da noite: 16 notas da pentatônica, sorteadas pela data (todo mundo ouve a mesma música hoje). */
-export function nightTune(genesis: number): number[] {
-  const r = mulberry32(fnv(`tune|${Math.floor(genesis / DAY_MS)}`)), out: number[] = [];
+export function nightTune(genesis: number, fire = 0): number[] {
+  // cada fogueira tem a sua melodia do dia (a 0 é a da ágora)
+  const r = mulberry32(fnv(`tune|${Math.floor(genesis / DAY_MS)}${fire ? `|${fire}` : ''}`)), out: number[] = [];
   let n = 4;
   for (let k = 0; k < 16; k++) { n = Math.max(0, Math.min(7, n + [-2, -1, -1, 0, 1, 1, 2][Math.floor(r() * 7)]!)); out.push(n); }
   return out;

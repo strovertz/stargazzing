@@ -11,13 +11,23 @@ const ART: Record<string, string[]> = {
   coelho: ['.w.w.', '.www.', 'wwwww', '.w.w.'],
   raposa: ['o...o..', 'ooooo..', '.oooooW', '.o..o..'],
   gato: ['k.k..', 'kkk..', 'kkkkk', 'k..k.'],
+  gatinho: ['k.k..', 'kkk..', 'kkkkk', 'k..k.'],
+  cachorro: ['.....b', 'b...bb', 'bbbbb.', 'b..b..'],
+  galinha: ['..r.', '.ww.', 'wwwy', '.ww.', '.y..'],
+  pato: ['..gg.', '..gwy', 'www..', '.ww..'],
+  sapo: ['.g.g.', 'ggggg', 'g...g'],
   cervo: ['y.y.....', '.yy.....', '.ww.....', 'wwwwwww.', '.wwwwwww', '.w.w..w.', '.w.w..w.'],
 };
 const COLORS: Record<string, Record<string, string>> = {
   coelho: { w: '#d8d2c4' },
   raposa: { o: '#d06a28', W: '#f4efe4' },
   gato: { k: '#2a2a30' },
+  gatinho: { k: '#e8954a' },
   cervo: { w: '#f4f6ff', y: '#d8d0b8' },
+  cachorro: { b: '#a86a3a' },
+  galinha: { w: '#f4efe4', r: '#d0302a', y: '#f2b134' },
+  pato: { w: '#e8e0c8', g: '#2f7a4a', y: '#f2b134' },
+  sapo: { g: '#5aa848' },
 };
 const sprites = new Map<string, HTMLCanvasElement>();
 function art(kind: string): HTMLCanvasElement {
@@ -97,4 +107,31 @@ export function drawDeer(g: CanvasRenderingContext2D, sim: Simulation, v: View, 
   const face = Math.sin(tf * 0.01) > 0 ? 1 : -1;
   g.save(); g.translate(x, y - c.height * px); if (face < 0) g.scale(-1, 1);
   g.drawImage(c, -(c.width * px) / 2, 0, c.width * px, c.height * px); g.restore();
+}
+
+const PET_ART = ['cachorro', 'gatinho', 'galinha', 'pato', 'sapo'];
+/** Bichos de estimação: seguem o dono dois passos atrás e dormem na porta da casa. Pets perto brincam. */
+export function drawPets(g: CanvasRenderingContext2D, sim: Simulation, v: View, ts: number, pos: (i: number) => { x: number; y: number; face: number } | null, sleeping: (i: number) => boolean, push: (y: number, draw: () => void) => void): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  if (v.z < 0.65) return out;
+  sim.agents.forEach((a, i) => {
+    if (!a.pet || !a.present) return;
+    const p = pos(i);
+    let x: number, y: number;
+    if (!p || sleeping(i) || a.inside) { x = a.home.x - 1.2; y = a.home.y + 0.6; }
+    else { const k = (a.pet.kind * 7 + i) % 5; x = p.x - p.face * (1.6 + k * 0.1) + Math.sin(ts * 1.3 + i) * 0.3; y = p.y + 0.5; }
+    out.push({ x, y });
+  });
+  let k = 0;
+  sim.agents.forEach((a, i) => {
+    if (!a.pet || !a.present) return;
+    const { x, y } = out[k++]!;
+    if (!v.inV(x, y)) return;
+    // brincando: outro pet a menos de 3 células faz os dois pularem
+    const play = out.some(o => o.x !== x && Math.abs(o.x - x) < 3 && Math.abs(o.y - y) < 1.5);
+    const c = art(PET_ART[a.pet.kind]!), px = v.z * 2, hop = play ? Math.abs(Math.sin(ts * 6 + i)) * 4 * v.z : 0;
+    const face = Math.sin(ts * 0.7 + i) > 0 || !play ? (pos(i)?.face ?? 1) : -(pos(i)?.face ?? 1);
+    push(y, () => { g.save(); g.translate(v.sx(x), v.sy(y) - c.height * px - hop); if (face < 0) g.scale(-1, 1); g.drawImage(c, -(c.width * px) / 2, 0, c.width * px, c.height * px); g.restore(); });
+  });
+  return out;
 }

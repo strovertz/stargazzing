@@ -37,5 +37,9 @@ export type Hat = (typeof HATS)[number];
 /** A cabana fica centrada em home.x - HOUSE_DX e ocupa 3 células (home.x-3..home.x-1), duas linhas de fundo. */
 export const HOUSE_DX = 2;
 /** Profissão sai do hash do login: muda a rotina e o item que o morador carrega. */
+/** Instrumentos dos músicos e bichos de estimação (sorteados pelo login). */
+export const INSTRUMENTS = ['alaúde', 'flauta', 'tambor', 'harpa', 'gaita'] as const;
+export const PETS = ['cachorro', 'gato', 'galinha', 'pato', 'sapo'] as const;
+export const PET_NAMES = ['Pipoca', 'Farofa', 'Paçoca', 'Biscoito', 'Tico', 'Nina', 'Bolota', 'Pitoco', 'Mel', 'Jujuba', 'Fubá', 'Cacau', 'Pingo', 'Luna', 'Toddy', 'Banzé'];
 export const PROFS = ['lenhador', 'pescador', 'músico', 'jardineiro', 'explorador', 'minerador'] as const;
 export type Prof = (typeof PROFS)[number];
