@@ -15,9 +15,14 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Pixelify+Sans:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <filter id="f-bolso" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values=".45 .9 .17 0 .04  .45 .9 .17 0 .04  .45 .9 .17 0 .04  0 0 0 1 0"/><feComponentTransfer><feFuncR type="discrete" tableValues=".059 .188 .545 .608"/><feFuncG type="discrete" tableValues=".22 .384 .675 .737"/><feFuncB type="discrete" tableValues=".059 .188 .059 .059"/></feComponentTransfer></filter>
+  <filter id="f-azul" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values=".12 .25 .05 0 .01  .2 .42 .08 0 .03  .35 .75 .2 0 .08  0 0 0 1 0"/></filter>
+</svg>
+<div id="scene" class="sr-only" role="status" aria-live="polite"></div>
 <div id="app">
   <canvas id="bg" aria-hidden="true"></canvas>
-  <canvas id="fg" aria-label="Mundo animado dos stargazers. Arraste para mover, role para dar zoom."></canvas>
+  <canvas id="fg" aria-label="Mundo animado dos stargazers. Arraste para mover, role para dar zoom. Aperte S para ouvir a descrição da cena."></canvas>
   <div class="hud glass">
     <h1>Stargazzing</h1>
     <div class="row" aria-live="polite"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt moon"><canvas id="moon" width="32" height="32" aria-hidden="true"></canvas><em id="moonTxt"></em> · <em id="season"></em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
@@ -41,7 +46,7 @@
     <div id="rank" class="rank"></div>
   </aside>
   <aside class="drawer glass" id="albumDrawer" aria-label="Álbum de figurinhas" aria-hidden="true">
-    <h2>Álbum de figurinhas <button data-close aria-label="Fechar">×</button></h2>
+    <h2>Álbum de f&zwnj;igurinhas <button data-close aria-label="Fechar">×</button></h2>
     <p class="bio">Cada evento raro que você presenciar aqui vira figurinha. Todo dia tem um X escondido no mapa: clique nele para cavar. O álbum fica só no seu navegador.</p>
     <div id="album"></div>
   </aside>
@@ -51,6 +56,14 @@
   <a class="embedLink glass" id="embedLink" hidden target="_blank" rel="noopener">Stargazzing ↗</a>
   <aside class="drawer glass" id="howDrawer" aria-label="Como funciona" aria-hidden="true">
     <h2>Como funciona <button data-close aria-label="Fechar">×</button></h2>
+    <section class="a11y" aria-label="Ver do seu jeito">
+      <h3>Ver do seu jeito</h3>
+      <label><input type="checkbox" id="optContrast"> Alto contraste</label>
+      <label><input type="checkbox" id="optBig"> Texto grande</label>
+      <label>Paleta <select id="optPalette" aria-label="Paleta de cores do mapa"></select></label>
+      <button id="describe" class="descBtn">Descrever a cena (S)</button>
+      <p id="sceneTxt" class="bio" aria-hidden="true"></p>
+    </section>
     <ol class="how">
       <li><b>Uma star, um morador.</b> O hash do login define aparência, chapéu, espécie da árvore, ritmo e temperamento. Mesmo nome, mesmo personagem, em qualquer navegador.</li>
       <li><b>Chegada.</b> O morador entra pela borda, constrói uma cabana, planta a árvore dele e passa a viver ali.</li>

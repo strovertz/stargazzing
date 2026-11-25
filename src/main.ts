@@ -22,6 +22,7 @@ import { encode, restore } from './sim/snapshot';
 import { loadSnap, saveSnap } from './core/store';
 import type { ReplayJob, ReplayMsg } from './sim/worker';
 import { Play, treasureFor } from './ui/play';
+import { applyA11y, describeScene, loadA11y, PALETTES } from './ui/a11y';
 
 const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama', FARM: 'cuidando do trigo', SELL: 'vendendo na banca', BAKE: 'assando pão', MAIL: 'entregando cartas', CAMP: 'no acampamento' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -449,6 +450,16 @@ function renderRank(): void {
   sec('A vila hoje', [['Moradores', `${present.length} de ${sim.agents.length}`], ['Árvores', String(sim.trees.length)], ['Cartas entregues', String(sim.letters.length)], ['Sacas no celeiro', String(sim.wheatStock)], ['Coelhos e raposas', `${sim.eco.rabbits} · ${sim.eco.foxes}`], ['Entradas no diário', String(sim.log.length)]]);
 }
 
+/** Lê a cena em voz (leitor de tela) e mostra o mesmo texto em "Como funciona". */
+function describe(): void {
+  if (!ready) return;
+  const vis = [...renderer.screen.keys()];
+  const text = describeScene(sim, fmt(sim.genesis + sim.tick * TICK_MS), vis, stateText, selected, renderer.treasureInView);
+  const sc = $('scene');
+  sc.textContent = '';
+  setTimeout(() => { sc.textContent = text; }, 50);
+  $('sceneTxt').textContent = text;
+}
 /** Avisos curtos no canto da tela (figurinha nova, tesouro, desejo) */
 const toasts: string[] = [];
 let toastBusy = false;
@@ -507,6 +518,16 @@ function photo(): void {
 
 // ---------- eventos ----------
 function bind(): void {
+  // acessibilidade: preferências e descrição da cena para leitor de tela
+  const opt = loadA11y();
+  applyA11y(opt);
+  const cbC = $<HTMLInputElement>('optContrast'), cbB = $<HTMLInputElement>('optBig'), sel = $<HTMLSelectElement>('optPalette');
+  for (const [v, label] of PALETTES) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.append(o); }
+  cbC.checked = opt.contrast; cbB.checked = opt.big; sel.value = opt.palette;
+  cbC.addEventListener('change', () => { opt.contrast = cbC.checked; applyA11y(opt); });
+  cbB.addEventListener('change', () => { opt.big = cbB.checked; applyA11y(opt); });
+  sel.addEventListener('change', () => { opt.palette = sel.value as typeof opt.palette; applyA11y(opt); });
+  $('describe').addEventListener('click', describe);
   $('openAlbum').addEventListener('click', () => { openDrawer('albumDrawer'); play.renderAlbum($('album')); });
   $('wish').addEventListener('click', () => { play.wish(sim); $('wish').hidden = true; renderer.releaseLantern(clock() / 1000 - sim.genesis / 1000); });
   $('openRank').addEventListener('click', () => { openDrawer('rankDrawer'); renderRank(); });
@@ -539,6 +560,8 @@ function bind(): void {
     if (key === 'q') board.show(sim);
     if (key === 'v') vitrine(!vitrineOn);
     if (key === 'r') { openDrawer('rankDrawer'); renderRank(); }
+    if (key === 's') describe();
+    if (key === 'x' && renderer.treasureInView) { play.dig(sim); renderer.treasure = null; }
     if (key === 'a') { openDrawer('albumDrawer'); play.renderAlbum($('album')); }
     if (key === 'w' && !$('wish').hidden) $('wish').click();
     if (key === 'p') openDrawer('playersDrawer');

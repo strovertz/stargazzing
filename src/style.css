@@ -31,7 +31,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-o
 .fab .n{font:700 13px "JetBrains Mono",monospace;background:rgba(0,0,0,.18);border-radius:10px;padding:1px 7px}
 .drawer{position:absolute;top:0;right:0;bottom:0;width:min(400px,100%);padding:18px 18px 140px;overflow-y:auto;transform:translateX(105%);transition:transform .22s ease;border-radius:0;border-width:0 0 0 1px;background:rgba(8,13,17,.95);z-index:2}
 .drawer.open{transform:none}
-.drawer h2{font:700 24px/1.2 "Pixelify Sans",Inter,sans-serif;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center;font-variant-ligatures:none}
+.drawer h2{font:700 24px/1.2 "Pixelify Sans",Inter,sans-serif;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center}
 .drawer h2 button{font:400 24px Inter;color:var(--mute)}
 .how{margin:0;padding-left:1.2em;color:var(--mute)}
 .how li{margin-bottom:10px}.how b{color:var(--ink)}
@@ -133,3 +133,23 @@ body.vitrine .hud,body.vitrine .tools,body.vitrine .fabs,body.vitrine .mini,body
 @keyframes wishGlow{50%{box-shadow:0 0 22px rgba(255,240,180,.55)}}
 .toast{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);z-index:30;padding:10px 16px;border-radius:12px;font-size:13.5px;max-width:min(560px,90vw);text-align:center}
 body.embed .toast,body.vitrine .toast,body.vitrine .wish{display:none}
+/* acessibilidade: alto contraste, texto grande, paletas e descrição da cena */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.a11y{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:14px}
+.a11y h3{width:100%;margin:0;font:700 13px "JetBrains Mono",monospace;color:var(--gold);text-transform:uppercase;letter-spacing:.05em}
+.a11y label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.a11y select{background:#0d1418;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:3px 6px;font:inherit}
+.descBtn{background:rgba(242,193,78,.12);color:var(--gold);border:1px solid rgba(242,193,78,.4);border-radius:999px;padding:4px 12px;cursor:pointer;font:inherit}
+.a11y p{width:100%;margin:0}
+.a11y p:empty{display:none}
+select:focus-visible,a:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+body.contrast{--glass:rgba(0,0,0,.97);--line:rgba(255,255,255,.55);--mute:#e4ece8;--ink:#fff}
+body.contrast .glass,body.contrast .drawer{background:#000;border-color:rgba(255,255,255,.55)}
+body.contrast .fab.gold{outline:2px solid #fff}
+body.contrast button:focus-visible,body.contrast input:focus-visible,body.contrast select:focus-visible{outline:3px solid #fff;outline-offset:3px}
+body.contrast #bg,body.contrast #fg{filter:contrast(1.15) brightness(1.12)}
+body.bigtext :is(.hud,.tools,.fabs,.drawer,.dlg,.board,.toast,.hint,.wish,.live,.houseView){zoom:1.22}
+body.pal-sepia #bg,body.pal-sepia #fg{filter:sepia(.85) contrast(1.05)}
+body.pal-bolso #bg,body.pal-bolso #fg{filter:url(#f-bolso)}
+body.pal-azul #bg,body.pal-azul #fg{filter:url(#f-azul) brightness(1.1)}
+@media (min-width:900px){body:has(.drawer.open) .fabs{right:calc(400px + 16px)}body.bigtext:has(.drawer.open) .fabs{right:calc((400px * 1.22 + 16px) / 1.22)}}

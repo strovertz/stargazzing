@@ -62,6 +62,7 @@ export class Renderer {
   treasure: { x: number; y: number } | null = null;
   favorite: string | null = null;
   private treasureRect: { x: number; y: number; r: number } | null = null;
+  get treasureInView(): boolean { return !!this.treasureRect; }
   treasureAt(px: number, py: number): boolean { const t = this.treasureRect; return !!t && Math.abs(px - t.x) <= t.r && Math.abs(py - t.y) <= t.r; }
   private boardRect: { x: number; y: number; w: number; h: number } | null = null;
   boardAt(px: number, py: number): boolean { const r = this.boardRect; return !!r && px >= r.x - 6 && px <= r.x + r.w + 6 && py >= r.y - 6 && py <= r.y + r.h + 6; }
