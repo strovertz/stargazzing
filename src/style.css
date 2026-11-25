@@ -1,0 +1,64 @@
+/* VOICE: brincalhão e calmo, um jardim que vive sozinho
+   IDEA: um terrário em pixel art e ASCII, visto de cima, onde cada star é um morador
+   PICTURE: o mundo ocupa a tela inteira; HUD de vidro escuro flutua por cima
+   COLOUR and TYPE: verdes e azuis do próprio terreno, dourado de destaque; Pixelify Sans + Inter + JetBrains Mono
+   LAYOUT: mapa em tela cheia, status no topo, minimapa embaixo à esquerda, botões flutuantes à direita abrem gavetas */
+:root{color-scheme:dark;--bg:#070b0e;--glass:rgba(8,13,17,.82);--line:rgba(255,255,255,.1);--ink:#eef4ef;--mute:#9fb3aa;--leaf:#86e095;--gold:#f2c14e}
+*{box-sizing:border-box;min-width:0}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,system-ui,sans-serif;overflow:hidden}
+#app{position:fixed;inset:0}
+#app>canvas{position:absolute;inset:0;width:100%;height:100%}
+#fg{cursor:grab;touch-action:none}#fg.dragging{cursor:grabbing}
+.glass{background:var(--glass);border:1px solid var(--line);border-radius:12px;backdrop-filter:blur(8px)}
+.hud{position:absolute;top:12px;left:12px;padding:10px 14px;max-width:calc(100% - 24px)}
+.hud h1{margin:0;font:700 22px/1.1 "Pixelify Sans",Inter,sans-serif}
+.hud .row{display:flex;flex-wrap:wrap;gap:2px 14px;margin-top:4px;font-size:13px;color:var(--mute)}
+.hud .row b{font:700 15px "JetBrains Mono",monospace;color:var(--gold)}
+.hud .row em{font-style:normal;color:var(--ink);font-weight:600}
+.tools{position:absolute;top:12px;right:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.seg{display:flex;overflow:hidden;padding:0}
+button,input{font:inherit;color:var(--ink)}
+button{background:transparent;border:0;min-height:40px;min-width:40px;padding:0 12px;cursor:pointer;font-size:14px}
+.seg button+button{border-left:1px solid var(--line)}
+button[aria-pressed=true]{background:rgba(134,224,149,.16);color:var(--leaf);font-weight:600}
+button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.mini{position:absolute;left:12px;bottom:12px;padding:6px;line-height:0}
+.mini canvas{width:220px;height:106px;border-radius:6px;cursor:pointer;image-rendering:pixelated}
+.fabs{position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;gap:10px;align-items:flex-end;z-index:3}
+.fab{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 18px;border-radius:24px;font-weight:600;font-size:15px;box-shadow:0 6px 24px rgba(0,0,0,.45)}
+.fab.gold{background:var(--gold);color:#1d1503;border:0}
+.fab .n{font:700 13px "JetBrains Mono",monospace;background:rgba(0,0,0,.18);border-radius:10px;padding:1px 7px}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:min(400px,100%);padding:18px 18px 140px;overflow-y:auto;transform:translateX(105%);transition:transform .22s ease;border-radius:0;border-width:0 0 0 1px;background:rgba(8,13,17,.95);z-index:2}
+.drawer.open{transform:none}
+.drawer h2{font:700 24px/1.2 "Pixelify Sans",Inter,sans-serif;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center}
+.drawer h2 button{font:400 24px Inter;color:var(--mute)}
+.how{margin:0;padding-left:1.2em;color:var(--mute)}
+.how li{margin-bottom:10px}.how b{color:var(--ink)}
+.drawer h3{font:600 15px Inter;margin:18px 0 6px}
+.drawer p{color:var(--mute);margin:0 0 10px}
+form{display:flex;gap:8px;margin:0 0 6px}
+input{flex:1;font-size:16px;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:8px;min-height:44px;padding:0 12px}
+.go{background:var(--gold);color:#1b1404;font-weight:600;border-radius:8px}
+.msg{font-size:13px;color:var(--mute);min-height:1.4em;margin:0 0 12px}
+.list{display:grid;gap:6px}
+.who{display:flex;gap:12px;align-items:center;text-align:left;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:rgba(255,255,255,.03);width:100%}
+.who canvas{width:24px;height:42px;image-rendering:pixelated;flex:none}
+.who .nm{display:block;font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .st{display:block;font-size:13px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who.away{opacity:.5}.who[aria-pressed=true]{border-color:var(--gold)}
+.card{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px;display:grid;grid-template-columns:56px minmax(0,1fr);gap:4px 14px}
+.card canvas{width:48px;height:84px;image-rendering:pixelated;grid-row:span 3}
+.card h4{margin:0;font:700 18px "JetBrains Mono",monospace;overflow-wrap:anywhere}
+.card .sub{font-size:13px;color:var(--mute)}
+.trait{display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:8px;align-items:center;font-size:13px;grid-column:1/-1}
+.trait .m{height:6px;border-radius:3px;background:var(--line);overflow:hidden}.trait .m i{display:block;height:100%;background:var(--leaf)}
+.loading{position:absolute;inset:0;display:grid;place-items:center;background:rgba(5,8,10,.9);text-align:center;padding:20px;z-index:5}
+.loading[hidden]{display:none}.loading p{margin:0 0 10px;color:var(--mute)}
+.bar{width:min(320px,70vw);height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:0 auto}.bar i{display:block;height:100%;width:0;background:var(--leaf)}
+.hint{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);font-size:13px;color:var(--mute);padding:6px 12px;white-space:nowrap;pointer-events:none}
+@media(max-width:900px){.hint{display:none}}
+@media(max-width:700px){.hud h1{font-size:18px}.mini{display:none}.tools{top:auto;bottom:16px;left:12px;right:auto;justify-content:flex-start;max-width:calc(100% - 190px)}.hud .row .opt{display:none}}
+@media(prefers-reduced-motion:reduce){.drawer{transition:none}}
+.gh{color:var(--gold)}
+.search{width:100%;margin-bottom:10px}

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Mundo ASCII vivo: cada stargazer do repositório vira um morador que planta uma árvore.">
+<title>Stargazzing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Pixelify+Sans:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <canvas id="fg" aria-label="Mundo animado dos stargazers. Arraste para mover, role para dar zoom."></canvas>
+  <div class="hud glass">
+    <h1>Stargazzing</h1>
+    <div class="row" aria-live="polite"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
+  </div>
+  <div class="tools">
+    <div class="seg glass" role="group" aria-label="Velocidade">
+      <button data-speed="1" aria-pressed="true">1×</button><button data-speed="30" aria-pressed="false">30×</button><button data-speed="300" aria-pressed="false">300×</button>
+    </div>
+    <button class="glass" id="live">Ao vivo</button>
+    <div class="seg glass" role="group" aria-label="Zoom"><button id="zout" aria-label="Diminuir zoom">−</button><button id="zin" aria-label="Aumentar zoom">+</button></div>
+  </div>
+  <div class="mini glass"><canvas id="mini" width="200" height="96" aria-label="Minimapa: clique para ir até o ponto"></canvas></div>
+  <div class="hint glass" id="hint">Arraste para andar pelo mapa · role para zoom · clique num morador</div>
+  <div class="fabs">
+    <button class="fab glass" id="openHow">Como funciona</button>
+    <button class="fab gold" id="openPlayers">Players <span class="n" id="nBadge">0</span></button>
+  </div>
+  <aside class="drawer glass" id="howDrawer" aria-label="Como funciona" aria-hidden="true">
+    <h2>Como funciona <button data-close aria-label="Fechar">×</button></h2>
+    <ol class="how">
+      <li><b>Uma star, um morador.</b> O hash do login define aparência, chapéu, espécie da árvore, ritmo e temperamento. Mesmo nome, mesmo personagem, em qualquer navegador.</li>
+      <li><b>Chegada.</b> O morador entra pela borda, constrói uma cabana, planta a árvore dele e passa a viver ali.</li>
+      <li><b>Máquina de estados.</b> Passear, regar, descansar, visitar vizinhos e ir para a roda nas ruínas, com pesos pelo temperamento, pela hora e pelo clima.</li>
+      <li><b>Formiga de Langton.</b> No passeio, cada passo vira à direita ou à esquerda conforme a célula e a inverte. O uso gasta a grama em trilha; trilha esquecida vira flor.</li>
+      <li><b>Boids.</b> Na roda das ruínas o grupo se junta com separação, alinhamento e coesão.</li>
+      <li><b>Ruído Perlin.</b> Relevo, lagos, matas, vento na grama, ondas e chuva. A água reflete as árvores da margem.</li>
+      <li><b>Relógio determinístico.</b> 1 tick = 0,5 s. Ao abrir, o site refaz o dia desde a meia-noite (o checkpoint) até agora. Todo mundo vê a mesma cena.</li>
+    </ol>
+    <h3>Por que roda leve</h3>
+    <p>Só a parte visível do mapa é desenhada. Os caracteres saem de um atlas pré-renderizado, o chão é uma imagem de 1 pixel por célula ampliada, o cenário redesenha 10 vezes por segundo e só os personagens a 60 fps, com movimento interpolado entre as células. A busca de caminho reaproveita buffers e para cedo.</p>
+    <p id="dataNote"></p>
+    <p><a href="https://github.com/strovertz/stargazzing" class="gh">Código no GitHub</a> · dê uma star e vire morador.</p>
+  </aside>
+  <aside class="drawer glass" id="playersDrawer" aria-label="Players" aria-hidden="true">
+    <h2>Players <button data-close aria-label="Fechar">×</button></h2>
+    <div id="card"></div>
+    <form id="starForm" autocomplete="off"><input id="starName" placeholder="seu usuário do GitHub" maxlength="39" aria-label="Usuário do GitHub"><button class="go" type="submit">Dar star</button></form>
+    <p class="msg" id="msg">Star simulada só no seu navegador; no site real quem traz o morador é a Action.</p>
+    <input id="search" placeholder="Buscar player" aria-label="Buscar player" class="search">
+    <div class="list" id="list"></div>
+  </aside>
+  <div class="loading" id="loading"><div><p id="loadTxt">Refazendo o dia desde 00:00 a partir da semente…</p><div class="bar"><i id="loadBar"></i></div></div></div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
