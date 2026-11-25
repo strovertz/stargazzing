@@ -18,6 +18,7 @@
     <div class="row" aria-live="polite"><b id="clock">--:--</b><span>São Paulo</span><span><em id="weather">—</em></span><span class="opt">Moradores <em id="nPeople">0</em></span><span class="opt">Árvores <em id="nTrees">0</em></span><span class="opt">Flores <em id="nFlowers">0</em></span></div>
   </div>
   <div class="tools">
+    <div class="seg glass"><button id="sound" aria-pressed="false" aria-label="Ligar som ambiente" title="Som ambiente">♪ off</button></div>
     <div class="seg glass" role="group" aria-label="Zoom"><button id="zout" aria-label="Diminuir zoom">−</button><button id="zin" aria-label="Aumentar zoom">+</button></div>
   </div>
   <div class="mini glass"><canvas id="mini" width="200" height="96" aria-label="Minimapa: clique para ir até o ponto"></canvas></div>
@@ -36,6 +37,9 @@
       <li><b>Boids.</b> Na roda das ruínas o grupo se junta com separação, alinhamento e coesão.</li>
       <li><b>Ruído Perlin.</b> Relevo, lagos, matas, vento na grama, ondas e chuva.</li>
       <li><b>Fogueiras.</b> Ficam nas ruínas e em acampamentos. No fim do dia os moradores fazem roda em volta delas; à noite são a principal fonte de luz.</li>
+      <li><b>Clima.</b> Céu limpo, nublado, neblina de manhã, garoa, chuva e tempestade com relâmpagos, mais a força do vento, saem de ruído Perlin sobre o horário real. Na tempestade todo mundo corre para casa; na neblina passeiam menos e pescam mais.</li>
+      <li><b>Encontros.</b> Quem se cruza no passeio acena ou para para conversar; na roda da fogueira alguém sempre puxa uma música.</li>
+      <li><b>Som.</b> Botão ♪ no topo: vento, chuva, trovão, pássaros, grilos, fogueira e um alaúde de taverna perto das rodas. Tudo sintetizado no navegador, sem arquivo de áudio.</li>
       <li><b>Relógio determinístico.</b> 1 tick = 0,5 s. Ao abrir, o site refaz o dia desde a meia-noite (o checkpoint) até agora. Todo mundo vê a mesma cena.</li>
     </ol>
     <h3>Por que roda leve</h3>

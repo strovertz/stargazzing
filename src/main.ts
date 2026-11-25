@@ -5,8 +5,10 @@ import { genesisFor, hourAt, isNight, Simulation, stageOf } from './sim/simulati
 import type { Agent, WorldFile } from './sim/types';
 import { CW, CH, Renderer } from './render/renderer';
 import { spritesFor } from './render/sprites';
+import { Ambience } from './audio/ambience';
+import { lightningAt } from './sim/weather';
 
-const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda das ruínas', FISH: 'Pescando um poquin...' };
+const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda das ruínas', FISH: 'Pescando um poquin...', CHAT: 'conversando' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
@@ -20,6 +22,7 @@ const fmt = (ms: number) => { const d = new Date(ms + tz() * 3_600_000); return 
 function stateText(a: Agent): string {
   if (!a.present) return `chega às ${fmt(sim.genesis + a.arriveTick * TICK_MS)}`;
   if (a.state === 'VISIT' && a.friend) return `visitando ${a.friend.name}`;
+  if (a.state === 'CHAT' && a.friend && a.phase === 'stay') return `conversando com ${a.friend.name}`;
   return STATE_PT[a.state];
 }
 function spriteCanvas(a: Agent): HTMLCanvasElement {
@@ -98,8 +101,9 @@ function updateCard(): void {
 }
 function renderStatus(): void {
   $('clock').textContent = fmt(sim.genesis + sim.tick * TICK_MS);
-  const h = hourAt(sim.tick), rain = sim.isRain();
-  $('weather').textContent = (rain ? 'chuva' : 'céu limpo') + (isNight(h) || h >= 20 ? ', noite' : h < 7 ? ', amanhecer' : h >= 17.5 ? ', entardecer' : ', dia');
+  const h = hourAt(sim.tick), w = sim.weather();
+  const sky = w.kind === 'limpo' ? 'céu limpo' : w.kind;
+  $('weather').textContent = sky + (w.wind > 0.7 && !w.storm ? ' e vento' : '') + (isNight(h) || h >= 20 ? ', noite' : h < 7 ? ', amanhecer' : h >= 17.5 ? ', entardecer' : ', dia');
   $('nPeople').textContent = `${sim.agents.filter(a => a.present).length}/${sim.agents.length}`;
   $('nTrees').textContent = String(sim.trees.length);
   let f = 0;
@@ -142,7 +146,19 @@ function start(): void {
   chunk();
 }
 
-let lastScene = 0, lastUi = 0, lastMini = 0, lastFrame = 0;
+let lastScene = 0, lastUi = 0, lastMini = 0, lastFrame = 0, lastSound = 0;
+const amb = new Ambience();
+
+/** O que o som precisa saber: clima, hora e quão perto a câmera está de uma roda de fogueira. */
+function updateSound(ts: number): void {
+  const w = sim.weather(), h = hourAt(sim.tick), c = renderer.cam;
+  let best = Infinity, fire = sim.terrain.plazas[0]!;
+  for (const p of sim.terrain.plazas) { const d = Math.hypot(p.x - c.x, (p.y - c.y) * 2); if (d < best) { best = d; fire = p; } }
+  const near = Math.max(0, 1 - best / 40) * Math.min(1, renderer.zoom / 1.25);
+  const crowd = sim.agents.filter(a => a.present && a.state === 'GATHER' && Math.abs(a.x - fire.x) < 12 && Math.abs(a.y - fire.y) < 7).length;
+  const day = h >= 6.5 && h < 18.5 ? 1 : h >= 5.5 && h < 19.5 ? 0.5 : 0;
+  amb.update({ rain: w.rain, wind: w.wind, storm: w.storm, day, fire: near, crowd, flash: w.storm ? lightningAt(ts, sim.terrain.seed) : 0 });
+}
 /** 30 quadros por segundo bastam: o mundo anda a cada 500 ms e o resto é interpolado. */
 const FRAME_MS = 1000 / 30 - 2;
 function loop(now: number): void {
@@ -160,6 +176,7 @@ function loop(now: number): void {
     renderer.drawActors(tf, selected, hovered);
     if (now - lastMini > 500) { renderer.drawMini(selected); lastMini = now; }
     if (now - lastUi > 1000) { renderStatus(); renderPlayers(); lastUi = now; }
+    if (amb.on && now - lastSound > 200) { updateSound(ts); lastSound = now; }
   }
   requestAnimationFrame(loop);
 }
@@ -177,6 +194,19 @@ function bind(): void {
     if (k) { follow = false; renderer.pan(k[0], k[1]); }
   });
   $('search').addEventListener('input', () => renderPlayers(true));
+  // som começa desligado (autoplay); a escolha fica salva e volta no primeiro clique da próxima visita
+  const sb = $('sound');
+  const setSound = async (on: boolean) => {
+    if (on) { await amb.enable(); updateSound(Date.now() / 1000); } else amb.disable();
+    sb.textContent = on ? '♪ on' : '♪ off';
+    sb.setAttribute('aria-pressed', String(on));
+    sb.setAttribute('aria-label', on ? 'Desligar som ambiente' : 'Ligar som ambiente');
+    try { localStorage.setItem('som', on ? '1' : '0'); } catch { /* modo privado */ }
+  };
+  sb.addEventListener('click', () => void setSound(!amb.on));
+  let wanted = false;
+  try { wanted = localStorage.getItem('som') === '1'; } catch { /* modo privado */ }
+  if (wanted) addEventListener('pointerdown', e => { if (e.target !== sb && !amb.on) void setSound(true); }, { once: true });
   $('zin').addEventListener('click', () => renderer.setZoom(renderer.zi + 1));
   $('zout').addEventListener('click', () => renderer.setZoom(renderer.zi - 1));
   const fg = $<HTMLCanvasElement>('fg');

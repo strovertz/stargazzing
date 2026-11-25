@@ -2,6 +2,7 @@ import { css, hex, mix, type RGB } from '../core/color';
 import { h32 } from '../core/rng';
 import { COLS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, Tile } from '../sim/constants';
 import { hourAt, stageOf, type Simulation } from '../sim/simulation';
+import { lightningAt } from '../sim/weather';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
 import { clearPropCache, drawFire, houseSprite } from './props';
@@ -16,6 +17,7 @@ export const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25, 1.6, 2];
 const MINI: Record<number, RGB> = { 0: hex('#0b2333'), 1: hex('#16405a'), 2: hex('#5e5139'), 3: hex('#1f4a2b'), 4: hex('#12291a'), 5: hex('#474a51'), 6: hex('#50505a'), 7: hex('#2e2e35') };
 /** Luz do dia (1 = meio-dia). O mundo nunca fica totalmente claro: há sempre uma penumbra. */
 const DARK_SCALE = 0.25;
+const CHAT = ['…', '!', '?', '♪', '☺', 'ha', 'hm', '♥', '…'];
 const lightAt = (h: number) => (h >= 7 && h < 17.5 ? 1 : h >= 19.5 || h < 5 ? 0 : h < 7 ? (h - 5) / 2 : 1 - (h - 17.5) / 2);
 
 /**
@@ -141,6 +143,7 @@ export class Renderer {
     }
     // vento e brilho na água: milhares de caracteres, então só com o chão pronto e zoom em que dá para ver
     if (pending || z < 0.8) { this.dirty = pending; return; }
+    const windNow = sim.weather().wind, windSp = 0.2 + windNow * 0.5, windMin = 0.3 - windNow * 0.16;
     // vento: faixas de rajada passam pela grama; brilho na água
     const x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
     bx.font = `700 ${Math.max(3, Math.round((ch / 4) * 1.45))}px "JetBrains Mono",monospace`;
@@ -149,8 +152,8 @@ export class Renderer {
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
       const i = y * COLS + x, t = T[i]!, hs = h32(x, y, seed) % 100;
       if (t === Tile.Grass && sim.wear[i]! < 6 && hs < 45) {
-        const w = noise(x * 0.06 - ts * 0.35, y * 0.12, ts * 0.05);
-        if (w < 0.22) continue;
+        const w = noise(x * 0.06 - ts * windSp, y * 0.12, ts * 0.05);
+        if (w < windMin) continue;
         bx.fillStyle = w > 0.34 ? '#6fa86a' : '#4f8a52';
         bx.fillText(hs % 2 ? '/' : "'", (x - ox + 0.2 + (hs % 3) * 0.3) * cw, (y - oy + 0.25 + (hs % 4) * 0.18) * ch);
       } else if (t <= Tile.Shallow && hs < 50) {
@@ -166,7 +169,7 @@ export class Renderer {
   /** tf = tick fracionário (tempo do mundo), para interpolar o movimento. */
   drawActors(tf: number, selected: Agent | null, hovered: Agent | null): void {
     const sim = this.sim, fx = this.fx, z = this.zoom, ts = (tf * TICK_MS) / 1000, seed = sim.terrain.seed;
-    const { ox, oy, vw, vh } = this.view(), h = hourAt(sim.tick), rain = sim.isRain(), L = lightAt(h);
+    const { ox, oy, vw, vh } = this.view(), h = hourAt(sim.tick), wx = sim.weather(), rain = wx.rain > 0.3, L = lightAt(h);
     const cs = CW * z, ch = CH * z, sc = z * 2, VW = this.VW, VH = this.VH;
     fx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     fx.clearRect(0, 0, VW, VH);
@@ -199,7 +202,7 @@ export class Renderer {
     type D = { y: number; draw: () => void };
     const ds: D[] = [];
     for (const { t, spr } of sprites) {
-      const wind = sim.terrain.noise(t.x * 0.06 - ts * 0.35, t.y * 0.12, ts * 0.05), sk = wind * 0.07 + Math.sin(ts * 1.7 + t.x) * 0.008;
+      const wind = sim.terrain.noise(t.x * 0.06 - ts * (0.2 + wx.wind * 0.5), t.y * 0.12, ts * 0.05), sk = wind * (0.02 + wx.wind * 0.11) + Math.sin(ts * (1.2 + wx.wind * 1.5) + t.x) * (0.004 + wx.wind * 0.012);
       ds.push({ y: t.y + 0.01, draw: () => { fx.save(); fx.translate(sx(t.x), sy(t.y)); fx.transform(1, 0, -sk, 1, 0, 0); fx.drawImage(spr.canvas, -spr.w / 2, -spr.h, spr.w, spr.h); fx.restore(); } });
     }
     for (const { a, spr } of houses) ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(a.home.x - HOUSE_DX) - spr.w / 2, sy(a.home.y) - spr.h + ch * 0.1, spr.w, spr.h) });
@@ -227,7 +230,7 @@ export class Renderer {
     }
 
     // escuridão com furos de luz (fogueiras sempre; janelas ao anoitecer)
-    const dark = 0.05 + (1 - L) * 0.47 + (rain ? 0.06 : 0);
+    const dark = 0.05 + (1 - L) * 0.47 + wx.cloud * 0.06 + wx.rain * 0.06 + (wx.storm ? 0.08 : 0);
     const flick = (k: number) => 1 + Math.sin(ts * 11 + k) * 0.05 + Math.sin(ts * 23 + k * 3) * 0.035;
     if (dark < 0.12) {
       // de dia a luz das fogueiras nem aparece: só um véu, sem camada extra
@@ -256,19 +259,38 @@ export class Renderer {
     for (const p of fires) drawFire(fx, sx(p.x), sy(p.y) - ch * 0.45, cs * 1.5, ch * 1.5, ts, seed + p.x);
 
     // vagalumes e chuva
-    if (L < 0.6) for (let k = 0; k < 50; k++) {
+    if (L < 0.6 && wx.rain < 0.2) for (let k = 0; k < 50; k++) {
       const px = ((((h32(k, 7, seed) % 1000) / 1000) * VW + Math.sin(ts * 0.7 + k) * 30) % VW + VW) % VW;
       const py = ((((h32(k, 9, seed) % 1000) / 1000) * VH + Math.cos(ts * 0.5 + k * 1.3) * 20) % VH + VH) % VH;
       fx.fillStyle = `rgba(220,255,140,${(0.5 + 0.5 * Math.sin(ts * 3 + k)) * 0.85})`;
       fx.beginPath(); fx.arc(px, py, 1.4, 0, 7); fx.fill();
     }
-    if (rain) {
-      fx.strokeStyle = 'rgba(150,180,220,.32)'; fx.lineWidth = 1; fx.beginPath();
-      for (let k = 0; k < 200; k++) {
-        const px = ((((h32(k, 3, seed) % 1000) / 1000) * VW - ts * 60) % VW + VW) % VW, py = ((((h32(k, 5, seed) % 1000) / 1000) * VH + ts * 520) % (VH + 20)) - 10;
-        fx.moveTo(px, py); fx.lineTo(px - 3, py + 11);
+    // neblina: véu claro e bancos de névoa que derivam com o vento
+    if (wx.fog > 0.05) {
+      fx.fillStyle = `rgba(170,182,196,${wx.fog * 0.22})`;
+      fx.fillRect(0, 0, VW, VH);
+      for (let k = 0; k < 7; k++) {
+        const px = ((((h32(k, 21, seed) % 1000) / 1000) * (VW + 600) + ts * (8 + wx.wind * 20)) % (VW + 600)) - 300;
+        const py = ((h32(k, 23, seed) % 1000) / 1000) * VH, r = 180 + (h32(k, 25, seed) % 220);
+        const g = fx.createRadialGradient(px, py, 0, px, py, r);
+        g.addColorStop(0, `rgba(190,200,212,${wx.fog * 0.28})`); g.addColorStop(1, 'rgba(190,200,212,0)');
+        fx.fillStyle = g; fx.beginPath(); fx.ellipse(px, py, r * 1.8, r * 0.6, 0, 0, 7); fx.fill();
+      }
+    }
+    // chuva com intensidade e inclinação pelo vento
+    if (wx.rain > 0.08) {
+      const n = Math.round(30 + wx.rain * 320), slant = 2 + wx.wind * 12, len = 8 + wx.rain * 8;
+      fx.strokeStyle = `rgba(160,190,230,${0.22 + wx.rain * 0.28})`; fx.lineWidth = 1.2; fx.beginPath();
+      for (let k = 0; k < n; k++) {
+        const px = ((((h32(k, 3, seed) % 1000) / 1000) * VW - ts * (40 + wx.wind * 160)) % VW + VW) % VW, py = ((((h32(k, 5, seed) % 1000) / 1000) * VH + ts * 520) % (VH + 20)) - 10;
+        fx.moveTo(px, py); fx.lineTo(px - slant, py + len);
       }
       fx.stroke();
+    }
+    // relâmpago
+    if (wx.storm) {
+      const fl = lightningAt(ts, seed);
+      if (fl > 0) { fx.fillStyle = `rgba(215,225,255,${fl * 0.4})`; fx.fillRect(0, 0, VW, VH); }
     }
 
     // balões e nomes por cima da escuridão
@@ -276,8 +298,16 @@ export class Renderer {
     fx.font = `700 ${Math.round(12 + 4 * z)}px Inter,sans-serif`;
     for (const a of list) {
       const p = this.screen.get(a)!;
+      if (a.state === 'CHAT' && a.phase === 'stay' && a.friend) {
+        // conversa: os dois se revezam, cada fala dura 3 segundos
+        const slot = Math.floor(sim.tick / 6), me = a.name < a.friend.name ? 0 : 1;
+        if ((slot + me) % 2) continue;
+        fx.fillStyle = '#e8e2d0';
+        fx.fillText(CHAT[h32(slot, a.hue, 3) % CHAT.length]!, p.x + 7 * sc, p.y - 15 * sc - Math.sin(ts * 3) * 1.5);
+        continue;
+      }
       if (a.bubble && sim.tick <= a.bubbleUntil && !(a.bubble === 'z' && (ts | 0) % 3 === 0)) {
-        fx.fillStyle = a.bubble === '♥' ? '#ff7aa8' : a.bubble === '¨' ? '#7cc4ff' : '#f2c14e';
+        fx.fillStyle = a.bubble === '♥' ? '#ff7aa8' : a.bubble === '¨' ? '#7cc4ff' : a.bubble === '♪' ? '#c9a8ff' : '#f2c14e';
         fx.fillText(a.bubble, p.x + 7 * sc, p.y - 15 * sc - Math.sin(ts * 2) * 2);
       }
     }

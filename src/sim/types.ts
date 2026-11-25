@@ -2,7 +2,7 @@ import type { RGB } from '../core/color';
 import type { Rng } from '../core/rng';
 import type { Hat } from './constants';
 
-export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH';
+export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT';
 export type Phase = 'go' | 'stay' | 'walk' | 'boid';
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string }
@@ -46,6 +46,8 @@ export interface Agent {
   bubbleUntil: number;
   hut: boolean;
   home: Point;
+  /** último tick em que conversou ou acenou, para não ficar tagarelando sem parar */
+  chatAt: number;
 }
 
 /** Uma entrada de public/world.json. Dados reais usam starredAt; a demo usa daysAgo ou todayHour. */

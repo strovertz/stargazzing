@@ -104,4 +104,22 @@ describe('desempenho', () => {
     expect(seen).toBeGreaterThan(1000);
     expect(bad).toBe(0);
   }, 30_000);
+
+  it('clima varia ao longo dos dias e é o mesmo para todos', () => {
+    const kinds = new Set<string>();
+    for (let d = 0; d < 20; d++) {
+      const s = new Simulation(W, GENESIS + d * 86_400_000);
+      for (let t = 0; t < 172_800; t += 3600) kinds.add(s.weather(t).kind);
+    }
+    expect(kinds.size).toBeGreaterThanOrEqual(4);
+    const a = new Simulation(W, GENESIS), b = new Simulation(W, GENESIS);
+    expect(a.weather(5000)).toEqual(b.weather(5000));
+  });
+
+  it('moradores se encontram e conversam', () => {
+    const s = new Simulation(W, GENESIS);
+    let chats = 0;
+    for (let t = 0; t < 40_000; t += 5) { s.runUntil(t); chats += s.agents.filter(a => a.state === 'CHAT' && a.phase === 'stay').length; }
+    expect(chats).toBeGreaterThan(0);
+  }, 30_000);
 });

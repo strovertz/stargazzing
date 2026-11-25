@@ -2,6 +2,7 @@ import { hsl, css } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
 import { COLS, DAY_MS, DIR4, DIR8, FLOWERS, HAIR, HATS, HOUSE_DX, N, PANTS, ROWS, SKIN, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
 import { Terrain } from './world';
+import { weatherAt, type Weather } from './weather';
 import type { Agent, AgentMeta, Plaza, Point, State, Tree, WorldFile } from './types';
 
 export const hourAt = (t: number) => ((t * TICK_MS) / 3_600_000) % 24;
@@ -79,7 +80,16 @@ export class Simulation {
   }
 
   tickAt(ms: number): number { return Math.floor((ms - this.genesis) / TICK_MS); }
-  isRain(t = this.tick): boolean { return this.terrain.noise(t / 9000, 0.5, 9.3) > 0.3; }
+  private wTick = -1;
+  private wNow!: Weather;
+  /** Clima do tick (guardado: decide() consulta muitas vezes por tick). */
+  weather(t = this.tick): Weather {
+    if (t === this.wTick) return this.wNow;
+    const w = weatherAt(this.terrain.noise, (this.genesis + t * TICK_MS) / 3_600_000, hourAt(t));
+    if (t === this.tick) { this.wTick = t; this.wNow = w; }
+    return w;
+  }
+  isRain(t = this.tick): boolean { return this.weather(t).rain > 0.3; }
 
   /** Star simulada localmente (botão "Dar star"): entra no próximo tick. */
   addLocal(login: string): Agent {
@@ -128,7 +138,7 @@ export class Simulation {
       traits: { energy: 0.25 + r() * 0.75, social: r(), gardener: r(), wander: r() },
       arriveTick, meta, present: false, x: 0, y: 0, px: 0, py: 0, mt: 0, face: 1, state: 'ARRIVE', phase: 'go', wait: 0, path: [],
       dir: Math.floor(r() * 4), steps: 0, boidLeft: 0, mv: [0, 0], tree: null, friend: null, plaza: null, bubble: '', bubbleUntil: 0, hut: false,
-      home: { x: 0, y: 0 },
+      home: { x: 0, y: 0 }, chatAt: -9999,
     };
     a.home = this.pickHome(a);
     return a;
@@ -294,15 +304,16 @@ export class Simulation {
 
   /** Máquina de estados: pesos por temperamento, hora e clima, sorteados pelo PRNG do morador. */
   private decide(a: Agent): void {
-    const h = hourAt(this.tick), night = isNight(h), rain = this.isRain(), evening = h >= 18 && h < 22.5;
+    const h = hourAt(this.tick), night = isNight(h), wx = this.weather(), rain = wx.rain > 0.3, evening = h >= 18 && h < 22.5;
+    const storm = wx.storm ? 1 : 0, fog = wx.fog > 0.35 ? 1 : 0;
     const thirsty = !!a.tree && this.tick - a.tree.lastWater > 1600;
     const w: [State, number][] = [
-      ['WANDER', (0.4 + a.traits.wander * 1.2) * (night ? 0.25 : 1)],
+      ['WANDER', (0.4 + a.traits.wander * 1.2) * (night ? 0.25 : 1) * (fog ? 0.5 : 1) * (storm ? 0.05 : 1)],
       ['WATER', a.tree ? (thirsty && !rain ? 1.8 : 0.12) * (0.4 + a.traits.gardener) : 0],
-      ['REST', (1.1 - a.traits.energy) * 0.8 + (night ? 3.2 : 0) + (rain ? 1.4 : 0)],
-      ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1)],
-      ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : 0.35) * (rain ? 0.2 : 1)],
-      ['FISH', (0.15 ) * (rain ? 0.2 : 1)],
+      ['REST', (1.1 - a.traits.energy) * 0.8 + (night ? 3.2 : 0) + (rain ? 1.4 : 0) + storm * 8],
+      ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1) * (storm ? 0.05 : 1)],
+      ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : 0.35) * (rain ? 0.2 : 1) * (1 - storm)],
+      ['FISH', (0.15 ) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1)],
     ];
     let pick = a.r() * w.reduce((s, x) => s + x[1], 0);
     let st: State = 'REST';
@@ -368,6 +379,7 @@ export class Simulation {
       if (!this.terrain.passable(nx) && a.path.length > 1) { const last = a.path[a.path.length - 1]!; this.goTo(a, last % COLS, (last / COLS) | 0); return; }
       a.path.shift();
       this.stepOn(a, nx % COLS, (nx / COLS) | 0);
+      if (a.state !== 'ARRIVE') this.meet(a);
       return;
     }
     if (a.phase === 'go') {
@@ -384,11 +396,49 @@ export class Simulation {
       }
       return;
     }
-    if (a.phase === 'boid') { this.boid(a); if (--a.boidLeft <= 0) this.decide(a); return; }
-    if (a.phase === 'walk') { this.walk(a); if (--a.steps <= 0) this.decide(a); return; }
+    if ((a.phase === 'boid' || a.phase === 'walk') && this.weather().storm) { a.bubble = '!'; a.bubbleUntil = tick + 8; this.decide(a); return; }
+    if (a.phase === 'boid') {
+      this.boid(a);
+      // roda de cantoria: com gente em volta à noite alguém puxa uma música
+      if (hourAt(tick) >= 18 || isNight(hourAt(tick))) {
+        if (a.r() < 0.04 * (0.3 + a.traits.social)) { a.bubble = '♪'; a.bubbleUntil = tick + 10 + Math.floor(a.r() * 14); }
+      }
+      if (--a.boidLeft <= 0) this.decide(a);
+      return;
+    }
+    if (a.phase === 'walk') {
+      this.walk(a);
+      if (this.meet(a)) return;
+      if (--a.steps <= 0) this.decide(a);
+      return;
+    }
     if (a.state === 'PLANT') this.build(a);
     if (a.state === 'WATER' && a.tree) a.tree.lastWater = tick;
     this.decide(a);
+  }
+
+  /** Encontro no passeio: acena para quem passa perto e às vezes para pra conversar. */
+  private meet(a: Agent): boolean {
+    const tick = this.tick;
+    if (tick - a.chatAt < 400) return false;
+    for (const b of this.agents) {
+      if (b === a || !b.present || !(b.phase === 'walk' || (b.phase === 'go' && b.state !== 'ARRIVE')) || tick - b.chatAt < 400) continue;
+      if (Math.abs(b.x - a.x) > 3 || Math.abs(b.y - a.y) > 2) continue;
+      a.chatAt = b.chatAt = tick;
+      if (a.r() < 0.25 + 0.5 * (a.traits.social + b.traits.social) / 2) {
+        const len = 30 + Math.floor(a.r() * 50);
+        for (const [p, q] of [[a, b], [b, a]] as const) {
+          p.state = 'CHAT'; p.phase = 'stay'; p.wait = len; p.friend = q; p.path = [];
+          p.face = q.x > p.x ? 1 : q.x < p.x ? -1 : p.face;
+          p.bubble = '…'; p.bubbleUntil = tick + len;
+        }
+        return true;
+      }
+      a.bubble = b.bubble = 'o/';
+      a.bubbleUntil = b.bubbleUntil = tick + 8;
+      return false;
+    }
+    return false;
   }
 
   /** A cada 240 ticks: árvores crescem, trilhas se apagam, trilha esquecida vira flor. */

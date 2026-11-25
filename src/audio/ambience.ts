@@ -1,0 +1,173 @@
+/**
+ * Som ambiente gerado na hora com Web Audio: nenhum arquivo de áudio, nenhuma licença.
+ * Camadas: vento na mata, chuva, trovão, pássaros de dia, grilos à noite, estalos da fogueira
+ * e uma "taverna" (alaúde dedilhado em escala pentatônica) quando a câmera está perto de uma roda.
+ */
+export interface AmbienceState {
+  rain: number; wind: number; storm: boolean;
+  /** 0 noite, 1 dia */
+  day: number;
+  /** 0 a 1: quão perto a câmera está de uma fogueira */
+  fire: number;
+  /** pessoas na roda da fogueira mais próxima */
+  crowd: number;
+  /** brilho do relâmpago agora (0 a 1) */
+  flash: number;
+}
+
+const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
+
+export class Ambience {
+  private ctx: AudioContext | null = null;
+  private master!: GainNode;
+  private noise!: AudioBuffer;
+  private windGain!: GainNode; private windFilter!: BiquadFilterNode;
+  private rainGain!: GainNode; private rumbleGain!: GainNode;
+  private st: AmbienceState = { rain: 0, wind: 0.3, storm: false, day: 1, fire: 0, crowd: 0, flash: 0 };
+  private nextBird = 0; private nextCricket = 0; private nextCrackle = 0; private nextNote = 0; private lastFlash = 0;
+  private note = 2; private timer = 0;
+  on = false;
+
+  /** Precisa vir de um clique (política de autoplay dos navegadores). */
+  async enable(): Promise<void> {
+    if (!this.ctx) this.build();
+    await this.ctx!.resume();
+    this.master.gain.setTargetAtTime(0.55, this.ctx!.currentTime, 0.6);
+    this.on = true;
+    if (!this.timer) this.timer = window.setInterval(() => this.schedule(), 120);
+  }
+
+  disable(): void {
+    if (!this.ctx) return;
+    this.on = false;
+    this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.25);
+    window.setTimeout(() => { if (!this.on) void this.ctx?.suspend(); }, 900);
+  }
+
+  update(s: AmbienceState): void {
+    this.st = s;
+    if (!this.ctx || !this.on) return;
+    const t = this.ctx.currentTime;
+    this.windGain.gain.setTargetAtTime(0.025 + s.wind * 0.09 + (s.storm ? 0.05 : 0), t, 1.5);
+    this.windFilter.frequency.setTargetAtTime(280 + s.wind * 700, t, 2);
+    this.rainGain.gain.setTargetAtTime(s.rain > 0.08 ? 0.04 + s.rain * 0.2 : 0, t, 1.5);
+    this.rumbleGain.gain.setTargetAtTime(s.storm ? 0.12 : s.rain * 0.03, t, 2);
+  }
+
+  private build(): void {
+    const ctx = (this.ctx = new AudioContext());
+    this.master = ctx.createGain();
+    this.master.gain.value = 0;
+    const comp = ctx.createDynamicsCompressor();
+    this.master.connect(comp).connect(ctx.destination);
+    // ruído branco de 3 s em loop, base de vento, chuva e estalos
+    const len = ctx.sampleRate * 3, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.noise = buf;
+    const loop = () => { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.loopStart = Math.random() * 2; s.start(); return s; };
+    // vento: ruído grave com filtro que oscila devagar
+    this.windFilter = ctx.createBiquadFilter(); this.windFilter.type = 'lowpass'; this.windFilter.frequency.value = 400; this.windFilter.Q.value = 0.8;
+    const lfo = ctx.createOscillator(), lfoG = ctx.createGain(); lfo.frequency.value = 0.07; lfoG.gain.value = 180;
+    lfo.connect(lfoG).connect(this.windFilter.frequency); lfo.start();
+    this.windGain = ctx.createGain(); this.windGain.gain.value = 0;
+    loop().connect(this.windFilter).connect(this.windGain).connect(this.master);
+    // chuva: ruído em faixa média-alta
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 6500;
+    this.rainGain = ctx.createGain(); this.rainGain.gain.value = 0;
+    loop().connect(hp).connect(lp).connect(this.rainGain).connect(this.master);
+    // ronco da tempestade
+    const rb = ctx.createBiquadFilter(); rb.type = 'lowpass'; rb.frequency.value = 120;
+    this.rumbleGain = ctx.createGain(); this.rumbleGain.gain.value = 0;
+    loop().connect(rb).connect(this.rumbleGain).connect(this.master);
+  }
+
+  /** Eventos curtos agendados alguns décimos à frente. */
+  private schedule(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.on) return;
+    const t = ctx.currentTime, s = this.st, ahead = t + 0.25;
+    if (s.day > 0.5 && s.rain < 0.2) {
+      if (this.nextBird < t) this.nextBird = t + 1 + Math.random() * 5;
+      if (this.nextBird < ahead) { this.bird(this.nextBird); this.nextBird += 2.5 + Math.random() * (7 - s.wind * 3); }
+    } else if (s.day < 0.3 && s.rain < 0.3) {
+      if (this.nextCricket < t) this.nextCricket = t + Math.random();
+      if (this.nextCricket < ahead) { this.cricket(this.nextCricket); this.nextCricket += 0.9 + Math.random() * 2.2; }
+    }
+    if (s.fire > 0.05 && s.rain < 0.6) {
+      if (this.nextCrackle < t) this.nextCrackle = t;
+      while (this.nextCrackle < ahead) { this.crackle(this.nextCrackle, s.fire); this.nextCrackle += 0.04 + Math.random() * (0.5 / (0.3 + s.fire)); }
+    }
+    if (s.fire > 0.15 && s.crowd >= 2 && s.day < 0.8 && !s.storm) {
+      if (this.nextNote < t) this.nextNote = t + 0.05;
+      while (this.nextNote < ahead) { this.pluck(this.nextNote, s.fire); this.nextNote += [0.32, 0.32, 0.64, 0.16][Math.floor(Math.random() * 4)]!; }
+    }
+    if (s.storm && s.flash > 0.5 && t - this.lastFlash > 1.5) { this.lastFlash = t; this.thunder(t + 0.4 + Math.random() * 1.6); }
+  }
+
+  private env(at: number, peak: number, attack: number, decay: number): GainNode {
+    const g = this.ctx!.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay);
+    g.connect(this.master);
+    return g;
+  }
+
+  private bird(at: number): void {
+    const ctx = this.ctx!, n = 2 + Math.floor(Math.random() * 4), base = 2200 + Math.random() * 1800;
+    for (let k = 0; k < n; k++) {
+      const t0 = at + k * (0.09 + Math.random() * 0.06), o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(base, t0);
+      o.frequency.exponentialRampToValueAtTime(base * (1.2 + Math.random() * 0.4), t0 + 0.06);
+      o.connect(this.env(t0, 0.035, 0.01, 0.08));
+      o.start(t0); o.stop(t0 + 0.12);
+    }
+  }
+
+  private cricket(at: number): void {
+    const ctx = this.ctx!;
+    for (let k = 0; k < 3; k++) {
+      const t0 = at + k * 0.07, o = ctx.createOscillator();
+      o.type = 'triangle'; o.frequency.value = 4300 + Math.random() * 300;
+      o.connect(this.env(t0, 0.012, 0.005, 0.04));
+      o.start(t0); o.stop(t0 + 0.06);
+    }
+  }
+
+  private crackle(at: number, near: number): void {
+    const ctx = this.ctx!, src = ctx.createBufferSource(), f = ctx.createBiquadFilter();
+    src.buffer = this.noise;
+    f.type = 'bandpass'; f.frequency.value = 1500 + Math.random() * 3000; f.Q.value = 1.5;
+    src.connect(f).connect(this.env(at, 0.05 + near * 0.12 * Math.random(), 0.002, 0.03 + Math.random() * 0.05));
+    src.start(at, Math.random() * 2, 0.1);
+  }
+
+  /** Alaúde de taverna: corda dedilhada (triângulo + filtro que fecha) andando pela pentatônica. */
+  private pluck(at: number, near: number): void {
+    const ctx = this.ctx!;
+    this.note = Math.max(0, Math.min(PENTA.length - 1, this.note + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)]!));
+    const freq = 220 * 2 ** (PENTA[this.note]! / 12);
+    for (const [mult, vol] of [[1, 1], [2, 0.3]] as const) {
+      const o = ctx.createOscillator(), f = ctx.createBiquadFilter();
+      o.type = 'triangle'; o.frequency.value = freq * mult;
+      f.type = 'lowpass'; f.frequency.setValueAtTime(3200, at); f.frequency.exponentialRampToValueAtTime(400, at + 0.5);
+      o.connect(f).connect(this.env(at, 0.05 * near * vol, 0.005, 0.7));
+      o.start(at); o.stop(at + 0.8);
+    }
+    // bordão grave a cada compasso
+    if (Math.random() < 0.25) {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 110;
+      o.connect(this.env(at, 0.04 * near, 0.02, 1.2)); o.start(at); o.stop(at + 1.3);
+    }
+  }
+
+  private thunder(at: number): void {
+    const ctx = this.ctx!, src = ctx.createBufferSource(), f = ctx.createBiquadFilter();
+    src.buffer = this.noise;
+    f.type = 'lowpass'; f.frequency.setValueAtTime(900, at); f.frequency.exponentialRampToValueAtTime(60, at + 2.5);
+    src.connect(f).connect(this.env(at, 0.5, 0.05, 2.6));
+    src.start(at, 0, 2.8);
+  }
+}
