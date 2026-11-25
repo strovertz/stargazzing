@@ -2,7 +2,7 @@
   "repo": "strovertz/stargazzing",
   "seed": "strovertz/stargazzing",
   "timezoneOffsetHours": -3,
-  "generatedAt": "2026-11-25T12:54:01.930Z",
+  "generatedAt": "2026-11-25T15:18:54.040Z",
   "stargazers": [
     {
       "login": "JoaoManierii",
@@ -87,6 +87,10 @@
     {
       "login": "CassioJr",
       "starredAt": "2026-11-25T12:54:01.911Z"
+    },
+    {
+      "login": "ThiagoRSL",
+      "starredAt": "2026-11-25T15:18:53.914Z"
     }
   ]
 }
