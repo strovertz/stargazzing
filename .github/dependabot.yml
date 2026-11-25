@@ -6,6 +6,10 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule: { interval: weekly }
+    ignore:
+      # @types/node acompanha a versão do Node usada no CI (22)
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       dev-deps:
         dependency-type: development
