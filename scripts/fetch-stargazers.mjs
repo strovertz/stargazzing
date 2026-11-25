@@ -1,7 +1,8 @@
 // Busca quem deu star no repositório e grava public/world.json.
 // Uso: node scripts/fetch-stargazers.mjs [owner/repo]
 // Token opcional: STARS_TOKEN (PAT só de leitura pública) ou GITHUB_TOKEN. O GITHUB_TOKEN das
-// Actions recebe 403 no REST de stargazers; nesse caso usa o GraphQL, que o aceita.
+// Actions não lê stargazers (403 no REST e no GraphQL), e sem token a API pede autenticação:
+// no deploy é preciso o secret STARS_TOKEN (fine-grained, só repositórios públicos, sem permissões).
 import { readFile, writeFile } from 'node:fs/promises';
 
 const SEED = 'strovertz/stargazzing'; // fixa: muda o mapa inteiro se mudar
@@ -35,48 +36,15 @@ async function fetchAll(auth) {
   return all.sort((a, b) => a.starredAt.localeCompare(b.starredAt) || a.login.localeCompare(b.login));
 }
 
-// GraphQL aceita o GITHUB_TOKEN das Actions para ler dados públicos.
-async function fetchGraphql() {
-  const [owner, name] = repo.split('/');
-  const all = [];
-  let after = null;
-  for (let i = 0; i < 400; i++) {
-    const res = await fetch('https://api.github.com/graphql', {
-      method: 'POST',
-      headers: { 'User-Agent': headers['User-Agent'], Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: `query($o:String!,$n:String!,$a:String){repository(owner:$o,name:$n){stargazers(first:100,after:$a,orderBy:{field:STARRED_AT,direction:ASC}){pageInfo{hasNextPage endCursor} edges{starredAt node{login}}}}}`,
-        variables: { o: owner, n: name, a: after },
-      }),
-    });
-    const body = await res.json();
-    if (!res.ok || body.errors) throw new Error(`GraphQL ${res.status}: ${JSON.stringify(body.errors ?? body)}`);
-    const sg = body.data.repository.stargazers;
-    for (const e of sg.edges) {
-      const login = e?.node?.login, at = e?.starredAt;
-      if (typeof login === 'string' && LOGIN.test(login) && typeof at === 'string' && !Number.isNaN(Date.parse(at)))
-        all.push({ login, starredAt: new Date(Date.parse(at)).toISOString() });
-    }
-    if (!sg.pageInfo.hasNextPage) break;
-    after = sg.pageInfo.endCursor;
-  }
-  return all.sort((a, b) => a.starredAt.localeCompare(b.starredAt) || a.login.localeCompare(b.login));
-}
-
 let stargazers;
 try {
-  try {
-    stargazers = await fetchAll(true);
-  } catch (err) {
-    if (!token || (err.status !== 401 && err.status !== 403)) throw err;
-    console.log(`REST recusou o token (${err.status}); tentando GraphQL`);
-    stargazers = await fetchGraphql();
-  }
+  stargazers = await fetchAll(true);
 } catch (err) {
   // Sem API (limite, rede): mantém o arquivo atual para o deploy não quebrar.
   try {
     await readFile(out);
-    console.warn(`::warning::não consegui buscar stars (${err.message}); mantendo world.json atual`);
+    const hint = process.env.STARS_TOKEN ? '' : ' Configure o secret STARS_TOKEN.';
+    console.warn(`::warning::não consegui buscar stars (${err.message}); mantendo world.json atual.${hint}`);
     process.exit(0);
   } catch { throw err; }
 }
