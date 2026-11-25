@@ -11,11 +11,13 @@ const ART: Record<string, string[]> = {
   coelho: ['.w.w.', '.www.', 'wwwww', '.w.w.'],
   raposa: ['o...o..', 'ooooo..', '.oooooW', '.o..o..'],
   gato: ['k.k..', 'kkk..', 'kkkkk', 'k..k.'],
+  cervo: ['y.y.....', '.yy.....', '.ww.....', 'wwwwwww.', '.wwwwwww', '.w.w..w.', '.w.w..w.'],
 };
 const COLORS: Record<string, Record<string, string>> = {
   coelho: { w: '#d8d2c4' },
   raposa: { o: '#d06a28', W: '#f4efe4' },
   gato: { k: '#2a2a30' },
+  cervo: { w: '#f4f6ff', y: '#d8d0b8' },
 };
 const sprites = new Map<string, HTMLCanvasElement>();
 function art(kind: string): HTMLCanvasElement {
@@ -37,11 +39,13 @@ function densFor(sim: Simulation): Den[] {
   if (d) return d;
   d = [];
   const { T, block, seed } = sim.terrain;
-  for (let k = 0; k < 4000 && d.length < 26; k++) {
+  // quantos bichos: sai do modelo predador-presa do dia (sim.eco)
+  const { rabbits, foxes } = sim.eco;
+  for (let k = 0; k < 4000 && d.length < rabbits + foxes; k++) {
     const x = 4 + (h32(k, 1, seed) % (COLS - 8)), y = 4 + (h32(k, 2, seed) % (ROWS - 8)), i = y * COLS + x;
     if (block[i]) continue;
-    if (T[i] === Tile.Grass && d.filter(q => q.kind === 'coelho').length < 18) d.push({ kind: 'coelho', x, y, k });
-    else if (T[i] === Tile.Forest && d.filter(q => q.kind === 'raposa').length < 8) d.push({ kind: 'raposa', x, y, k });
+    if (T[i] === Tile.Grass && d.filter(q => q.kind === 'coelho').length < rabbits) d.push({ kind: 'coelho', x, y, k });
+    else if (T[i] === Tile.Forest && d.filter(q => q.kind === 'raposa').length < foxes) d.push({ kind: 'raposa', x, y, k });
   }
   dens.set(sim, d);
   return d;
@@ -79,5 +83,18 @@ export function drawCat(g: CanvasRenderingContext2D, sim: Simulation, v: View, t
   if (!p || !v.inV(p.x, p.y)) return;
   const x = p.x - p.face * 1.3 + Math.sin(ts * 0.8) * 0.3, y = p.y + 0.4, c = art('gato'), px = v.z * 2;
   g.save(); g.translate(v.sx(x), v.sy(y) - c.height * px); if (p.face < 0) g.scale(-1, 1);
+  g.drawImage(c, -(c.width * px) / 2, 0, c.width * px, c.height * px); g.restore();
+}
+
+/** Cervo branco da lenda: só em noite de lua cheia, com um brilho frio em volta. */
+export function drawDeer(g: CanvasRenderingContext2D, sim: Simulation, v: View, tf: number): void {
+  const p = sim.deerAt(tf);
+  if (!p || !v.inV(p.x, p.y)) return;
+  const c = art('cervo'), px = v.z * 2.2, x = v.sx(p.x), y = v.sy(p.y);
+  const gl = g.createRadialGradient(x, y - c.height * px * 0.5, 0, x, y - c.height * px * 0.5, 30 * v.z);
+  gl.addColorStop(0, 'rgba(220,230,255,.45)'); gl.addColorStop(1, 'rgba(220,230,255,0)');
+  g.fillStyle = gl; g.beginPath(); g.arc(x, y - c.height * px * 0.5, 30 * v.z, 0, 7); g.fill();
+  const face = Math.sin(tf * 0.01) > 0 ? 1 : -1;
+  g.save(); g.translate(x, y - c.height * px); if (face < 0) g.scale(-1, 1);
   g.drawImage(c, -(c.width * px) / 2, 0, c.width * px, c.height * px); g.restore();
 }

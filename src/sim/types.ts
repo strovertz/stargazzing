@@ -2,20 +2,20 @@ import type { RGB } from '../core/color';
 import type { Rng } from '../core/rng';
 import type { Hat } from './constants';
 
-export interface LogEntry { tick: number; text: string; kind: 'chegada' | 'clima' | 'obra' | 'pesca' | 'evento' | 'céu' | 'encontro' | 'trabalho' }
+export interface LogEntry { tick: number; text: string; kind: 'chegada' | 'clima' | 'obra' | 'pesca' | 'evento' | 'céu' | 'encontro' | 'trabalho' | 'lenda' | 'amizade' | 'github' }
 
-export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT';
+export type State = 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT' | 'MINE' | 'BUCKET' | 'TASK';
 export type Phase = 'go' | 'stay' | 'walk' | 'boid';
 
-export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string }
+export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string; beard?: boolean }
 export interface Traits { energy: number; social: number; gardener: number; wander: number }
 export interface Point { x: number; y: number }
 export interface Plaza extends Point { main: boolean }
 
-export interface Tree { x: number; y: number; sp: number; growth: number; lastWater: number }
+export interface Tree { x: number; y: number; sp: number; growth: number; lastWater: number; /** dias desde o plantio (árvores antigas ficam enormes) */ age?: number }
 export interface WildTree { x: number; y: number; big: boolean; sp: number }
 /** Marco espalhado pelo mapa: moinho, torre de vigia, círculo de pedras, barraca de acampamento, ponte. */
-export interface Landmark { kind: 'moinho' | 'torre' | 'pedras' | 'barraca' | 'ponte'; x: number; y: number; w: number; v: number }
+export interface Landmark { kind: 'moinho' | 'torre' | 'pedras' | 'barraca' | 'ponte' | 'caverna' | 'templo' | 'quadro'; x: number; y: number; w: number; v: number }
 /** Coluna da ágora: 0 inteira, 1 quebrada, 2 caída (tambores no chão). */
 export interface Column { x: number; y: number; kind: 0 | 1 | 2; h: number }
 
@@ -56,6 +56,13 @@ export interface Agent {
   chatAt: number;
   /** índice em PROFS */
   prof: number;
+  /** amigos e rivais (afinidade pelos nomes) e par, se morar ao lado de alguém */
+  friends: Agent[];
+  rivals: Agent[];
+  partner: Agent | null;
+  /** dentro da caverna (não aparece) e cristais trazidos hoje */
+  inside: boolean;
+  crystals: number;
   /** marco que está visitando */
   sight?: string;
   /** coruja: fica acordado até tarde */
@@ -71,4 +78,15 @@ export interface WorldFile {
   demo?: boolean;
   generatedAt?: string;
   stargazers: StargazerEntry[];
+  /** dados do GitHub juntados na hora de carregar (não ficam no world.json) */
+  extra?: RepoData;
+}
+
+/** Dados do repositório buscados no deploy (public/repo.json), todos opcionais. */
+export interface RepoData {
+  forks?: { login: string; at: string }[];
+  requests?: { n: number; title: string; state: 'open' | 'closed'; closedAt?: string }[];
+  /** commits por dia (AAAA-MM-DD, UTC) nos últimos 14 dias */
+  commits?: Record<string, number>;
+  followers?: string[];
 }

@@ -67,3 +67,13 @@ input{flex:1;font-size:16px;background:rgba(0,0,0,.35);border:1px solid var(--li
 .works{list-style:none;margin:0;padding:0;display:grid;gap:4px}.works li{display:flex;justify-content:space-between;color:var(--mute);font-size:14px}.works li.done{color:var(--ink)}.works li b{font-weight:600}
 .diary{list-style:none;margin:0;padding:0;display:grid;gap:6px}.diary li{font-size:14px;color:var(--mute);display:flex;gap:10px}.diary time{font:600 12px "JetBrains Mono",monospace;color:var(--gold);flex:none;padding-top:2px}
 .card .bio{grid-column:1/-1;color:var(--ink);font-size:14px;margin:8px 0 2px;line-height:1.45}.card a.gh{grid-column:1/-1;font-size:13px;justify-self:start}
+
+.card .rel{color:var(--mute);font-size:13px;margin:2px 0}
+.card .share{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;margin:4px 0}
+.card .share button{font:600 12px Inter,sans-serif;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.card .share button:hover{border-color:var(--gold,#f2c14e)}
+.timelapse{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;padding:14px;border-radius:14px;width:min(94vw,1000px)}
+.timelapse[hidden]{display:none}
+.timelapse canvas{width:100%;height:auto;image-rendering:pixelated;border-radius:8px;display:block}
+.timelapse p{margin:10px 40px 0 2px;font-size:14px;color:var(--ink)}
+.timelapse button{position:absolute;right:14px;bottom:10px;background:transparent;border:0;color:var(--ink);font-size:22px;cursor:pointer}

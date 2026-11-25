@@ -5,3 +5,4 @@ coverage/
 .DS_Store
 .env*
 public/profiles.json
+public/repo.json

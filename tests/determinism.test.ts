@@ -58,7 +58,7 @@ describe('identidade pelo login', () => {
   it('quem deu star hoje chega e planta a árvore', { timeout: 30_000 }, () => {
     const s = run(24 * 7200);
     expect(s.agents.every(a => a.present)).toBe(true);
-    expect(s.trees.length).toBe(W.stargazers.length);
+    expect(s.agents.filter(a => a.tree).length).toBe(W.stargazers.length);
   });
 });
 

@@ -22,7 +22,7 @@ const DEEP_T = ['#0f2d42', '#143a55', '#1b4a6a'];
 const SHALLOW_T = ['#1b4d6a', '#236183', '#2f789c'];
 const MOSS_T = ['#2f5a2c', '#3f7a38', '#4f8a40', '#6a9f4c'];
 const SLAB_T = ['#5a574c', '#6f6b5e', '#878272'];
-const BG: Record<number, string> = { 0: '#06182a', 1: '#0a2536', 2: '#2a241a', 3: '#122a1a', 4: '#0d1f14', 5: '#141518', 6: '#18181d', 7: '#101013' };
+const BG: Record<number, string> = { 0: '#06182a', 1: '#0a2536', 2: '#2a241a', 3: '#122a1a', 4: '#0d1f14', 5: '#141518', 6: '#18181d', 7: '#101013', 8: '#0b2a36' };
 
 export class GroundCache {
   /** blocos por zoom: os últimos 3 zooms ficam guardados, então ir e voltar não refaz nada */
@@ -106,6 +106,10 @@ export class GroundCache {
           const r0 = ruinCh[i]!, lit = k === 0 ? 2 : k === 1 ? 1 : 0;
           chr = r0 === '#' ? pick(['#', '%', '&'], hh >>> 6) : r0 === '_' || r0 === 'n' ? pick(['=', '#', '='], hh >>> 6) : pick(['|', '#', '[', ']'], hh >>> 6);
           col = r0 === '#' && roll < 45 ? '#3f5a3c' : STONE_T[Math.min(3, lit + ((hh >>> 11) % 2))]!;
+        } else if (t === Tile.Stream) {
+          // riacho: água rasa correndo para baixo, seixos nas beiradas
+          if (roll < 70) { chr = pick(['~', '≈', '-', '~', ','], (hh >>> 6) + y); col = roll < 12 ? '#8cc8dc' : pick(SHALLOW_T, hh >>> 11); }
+          else if (roll < 80) { chr = 'o'; col = '#5a5a60'; }
         } else if (t === Tile.Floor && ruinCh[i] === 'a') {
           // lajes da ágora: juntas em grade, musgo nas frestas, raízes e folhas por cima
           const moss = M[i]! + ((hh >>> 20) % 100) / 220 > 0.18, root = h32(x >> 1, y, seed + 5) % 9 === 0;

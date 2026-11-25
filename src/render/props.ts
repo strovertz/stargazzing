@@ -200,3 +200,35 @@ export function tentSprite(hue: number, cw: number, ch: number, dpr: number) {
   const pal: Pal = { A: [`hsl(${hue} 45% 62%)`, `hsl(${hue} 45% 32%)`], a: [`hsl(${hue} 45% 52%)`, `hsl(${hue} 45% 26%)`], d: ['#1a120c', '#0c0806'], '^': ['#6a4426'], '/': [`hsl(${hue} 45% 70%)`, `hsl(${hue} 45% 36%)`], '\\': [`hsl(${hue} 45% 50%)`, `hsl(${hue} 45% 26%)`], g: ['#5a9a48'] };
   return artSprite(`barraca|${hue}`, rows, pal, (c) => (c === 'A' || c === 'a' ? '#' : c === 'd' ? ' ' : c === 'g' ? ',' : c), cw, ch, dpr);
 }
+
+/** Boca de caverna na pedra: arco escuro com pedras soltas na frente. */
+export function caveSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['   SSSSS   ', '  SSsssSS  ', ' SSs   sSS ', ' Ss  d  sS ', 'SSs ddd sSS', 'Ss ddddd sS', 'Ss ddddd sS', 'mSsdddddsSm', 'm.s.....s.m'];
+  const pal: Pal = { ...STONE, d: ['#0a0a0c', '#050506'], '.': ['#4a4840'] };
+  return artSprite('caverna', rows, pal, (c, i) => (c === 'S' ? (i < 5 ? '/' : '\\') : c === 's' ? '#' : c === 'd' ? ' ' : c === 'm' ? '"' : '.'), cw, ch, dpr);
+}
+
+/** Templo escondido: antes de 25 stars é só um morro de mato; depois, frontão, colunas e o cristal. */
+export function templeSprite(open: boolean, lit: boolean, cw: number, ch: number, dpr: number) {
+  const rows = open
+    ? ['          b          ', '         bBb         ', '       SSSSSSS       ', '    SSSSSSSSSSSSS    ', '  SSSSSSSSSSSSSSSSS  ', ' sssssssssssssssssss ', '  S   S   S   S   S  ', '  S   S   S   S   S  ', '  S   S   S   S   S  ', 'm S m S   S m S   S m', 'sssssssssssssssssssss']
+    : ['                     ', '       mmmmmmm       ', '    mmmmmmmmmmmmm    ', '  mmmmmmmmmmmmmmmmm  ', ' mmmmmmmSmmmmmSmmmmm ', 'mmmmmmmmmmmmmmmmmmmmm'];
+  const pal: Pal = { ...STONE, b: lit ? ['#d8c8ff', '#6a4ab8'] : ['#6a6070'], B: lit ? ['#ffffff', '#9a7aff'] : ['#7a7080'] };
+  return artSprite(`templo|${open}|${lit}`, rows, pal, (c, i, j) => (c === 'm' ? pick3(i + j) : c === 'S' ? (j < 5 ? (i < 10 ? '/' : '\\') : '|') : c === 's' ? '=' : c === 'b' || c === 'B' ? '*' : '.'), cw, ch, dpr);
+}
+const pick3 = (n: number) => ['"', ',', ';'][n % 3]!;
+
+/** Quadro de pedidos: moldura de madeira com um papel por pedido aberto (até 6). */
+export function boardSprite(n: number, cw: number, ch: number, dpr: number) {
+  const k = Math.min(6, n), papers = (row: number) => [...'      '].map((_, i) => (i < k && (i % 2 === row) ? 'p' : ' ')).join('');
+  const rows = ['wwwwwwww', `w${papers(0).replace(/ /g, 'o')}w`, `w${papers(1).replace(/ /g, 'o')}w`, 'wwwwwwww', ' w    w ', ' w    w '];
+  const pal: Pal = { ...STONE, o: ['#3a2818', '#2a1a0e'], p: ['#2a2420', '#e8e0c8'], w: ['#8a5a32', '#4a2e18'] };
+  return artSprite(`quadro|${k}`, rows, pal, (c) => (c === 'w' ? '#' : c === 'p' ? '=' : ' '), cw, ch, dpr);
+}
+
+/** Carroça do mercador. */
+export function cartSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['  yyyyy ', ' yrrrrry', 'wwwwwwww', ' O    O '];
+  const pal: Pal = { ...STONE, y: ['#f2c14e', '#8a6420'], r: ['#c43c3c', '#6a1a14'], w: ['#8a5a32', '#4a2e18'], O: ['#3a2818'] };
+  return artSprite('carroça', rows, pal, (c) => (c === 'y' ? '~' : c === 'r' ? 'o' : c === 'w' ? '=' : 'O'), cw, ch, dpr);
+}

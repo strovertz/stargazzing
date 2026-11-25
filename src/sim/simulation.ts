@@ -1,10 +1,20 @@
-import { hsl, css } from '../core/color';
+import { hsl } from '../core/color';
 import { fnv, h32, mulberry32 } from '../core/rng';
-import { PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HAIR, HATS, HOUSE_DX, N, PANTS, ROWS, SKIN, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
+import { PROFS, COLS, DAY_MS, DIR4, DIR8, FLOWERS, HOUSE_DX, N, ROWS, SPECIES, TICK_MS, TICKS_PER_HOUR, Tile } from './constants';
+import { affinity, commitBias, COUPLE_AT, ecosystem, FRIEND_AT, isFullMoon, merchantFor, RIVAL_AT } from './extras';
+import { age, lookFrom } from './look';
 import { Terrain } from './world';
 import { weatherAt, type Weather } from './weather';
 import { lanternSpots, planVillage, STARS_PER_COLUMN, type Structure } from './village';
-import type { Agent, AgentMeta, LogEntry, Plaza, Point, State, Tree, WorldFile } from './types';
+import type { Agent, AgentMeta, LogEntry, Plaza, Point, RepoData, State, Tree, WorldFile } from './types';
+
+/** Fogo de raio numa árvore: some com o mutirão dos baldes e vira muda replantada. */
+export interface Fire { x: number; y: number; hp: number; start: number; out: number }
+/** Acampamento de quem fez fork, na borda do mapa. */
+export interface ForkCamp { login: string; x: number; y: number }
+export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number }
+
+const WED = 3;
 
 export const hourAt = (t: number) => ((t * TICK_MS) / 3_600_000) % 24;
 /** Noite de sono: da meia-noite às 5h (corujas dormem ainda menos). */
@@ -54,6 +64,26 @@ export class Simulation {
   /** dia da semana local (0 domingo) */
   readonly weekday: number;
   private lastKind = '';
+  /** dados do GitHub (forks, pedidos, commits e seguidores) */
+  readonly extra: RepoData;
+  private readonly bias: { sun: number; fog: number };
+  /** fogo de raio em andamento (no máximo um por dia) */
+  fire: Fire | null = null;
+  private fireDone = false;
+  /** coelhos e raposas de hoje, pelo modelo predador-presa */
+  readonly eco: { rabbits: number; foxes: number };
+  readonly forks: ForkCamp[] = [];
+  private readonly trail = new Set<number>();
+  readonly requests: Request[];
+  /** mercador do dia (um seguidor do dono do repo) e o caminho dele: oeste, mercado, leste */
+  readonly merchant: string | null;
+  merchantPath: number[] = [];
+  private merchantStop = 0;
+  /** semana da última votação do conselho */
+  private voteWeek = -1;
+  /** ruína secreta: aparece com 25 stars, cristal aceso com 50 */
+  templeOpen = false;
+  crystalLit = false;
   private readonly gardenCells = new Set<number>();
   private readonly brokenCols: number[];
   private readonly gScore = new Int32Array(N);
@@ -70,6 +100,11 @@ export class Simulation {
     const m = local.getUTCMonth();
     this.season = m === 11 || m <= 1 ? 0 : m <= 4 ? 1 : m <= 7 ? 2 : 3;
     this.weekday = local.getUTCDay();
+    this.extra = world.extra ?? {};
+    this.bias = commitBias(this.extra, genesis + 12 * 3_600_000);
+    this.eco = ecosystem(Math.floor(genesis / DAY_MS), this.terrain.seed);
+    this.requests = (this.extra.requests ?? []).slice(0, 30).map(q => ({ n: q.n, title: String(q.title).slice(0, 80), state: q.state, closedAt: q.closedAt ? Date.parse(q.closedAt) : undefined }));
+    this.merchant = merchantFor(this.extra, genesis, this.terrain.seed);
     this.structures = planVillage(this.terrain);
     this.lanterns = lanternSpots(this.terrain);
     // ordem de restauro: quebradas primeiro, depois caídas, sempre a mesma
@@ -87,13 +122,18 @@ export class Simulation {
     });
     // ordem estável: mais antigos primeiro, empate pelo login
     entries.sort((a, b) => a.order - b.order || (a.login < b.login ? -1 : 1));
+    this.placeForks();
     for (const e of entries) {
       if (e.resident) {
-        const a = this.makeAgent(e.login, 0, { days: e.days });
+        // casal: quem chega depois vai morar ao lado de quem tem afinidade alta (os dois há 3+ dias)
+        const mate = e.days >= 3 ? this.agents.find(b => !b.partner && (b.meta.days ?? 0) >= 3 && affinity(b.name, e.login) >= COUPLE_AT) : undefined;
+        const a = this.makeAgent(e.login, 0, { days: e.days }, mate);
         a.present = true;
         a.x = a.px = a.home.x;
         a.y = a.py = a.home.y;
-        this.build(a).growth = e.days >= 3 ? 140 : e.days === 2 ? 95 : 60;
+        const tr = this.build(a);
+        tr.growth = e.days >= 3 ? 140 : e.days === 2 ? 95 : 60;
+        tr.age = e.days;
         a.state = 'REST';
         a.phase = 'stay';
         a.wait = Math.floor(a.r() * 300);
@@ -102,7 +142,126 @@ export class Simulation {
         this.agents.push(this.makeAgent(e.login, e.tick, { starredAt: genesis + e.tick * TICK_MS }));
       }
     }
+    for (const a of this.agents) this.relate(a);
+    this.planMerchant();
+    // votação mais recente do conselho (quarta, 19h30) vale até a próxima
+    this.applyVote(this.weekOf(0), false);
     this.updateVillage(false);
+    this.startNotes();
+  }
+
+  /** Amigos e rivais pela afinidade dos nomes (a relação vale para os dois lados). */
+  private relate(a: Agent): void {
+    for (const b of this.agents) {
+      if (b === a || a.friends.includes(b) || a.rivals.includes(b)) continue;
+      const k = affinity(a.name, b.name);
+      if (k >= FRIEND_AT) { a.friends.push(b); b.friends.push(a); } else if (k <= RIVAL_AT) { a.rivals.push(b); b.rivals.push(a); }
+    }
+  }
+
+  /** Forks viram acampamentos vizinhos nas bordas, com uma trilha até a ágora. */
+  private placeForks(): void {
+    const forks = [...(this.extra.forks ?? [])].sort((p, q) => (p.at < q.at ? -1 : p.at > q.at ? 1 : p.login < q.login ? -1 : 1)).slice(0, 12);
+    const { T, block, comp } = this.terrain;
+    const ok = (x: number, y: number) => { const i = y * COLS + x; return (T[i] === Tile.Grass || T[i] === Tile.Forest) && comp[i] && !block[i] && !block[i + 1] && (T[i + 1] === Tile.Grass || T[i + 1] === Tile.Forest); };
+    forks.forEach((f, k) => {
+      const west = k % 2 === 0, y0 = 8 + ((Math.floor(k / 2) * 23 + (h32(k, 3, this.terrain.seed) % 9)) % (ROWS - 16));
+      for (let r = 0; r < 30; r++) for (let dy = -r; dy <= r; dy++) {
+        const x = west ? 7 + r : COLS - 9 - r, y = y0 + dy;
+        if (y < 3 || y >= ROWS - 3 || !ok(x, y)) continue;
+        this.terrain.clearTrees(x - 1, y - 2, x + 2, y + 1);
+        block[y * COLS + x] = block[y * COLS + x + 1] = 1;
+        this.forks.push({ login: f.login, x, y });
+        const ag = this.terrain.plazas[0]!, path = this.bfs(x, y + 1, ag.x, ag.y + 3);
+        if (path) for (const c of path.slice(0, Math.ceil(path.length * 0.6))) if (T[c] === Tile.Grass || T[c] === Tile.Forest || T[c] === Tile.Sand) { this.trail.add(c); this.wear[c] = 6.5; }
+        return;
+      }
+    });
+    this.terrain.version++;
+  }
+
+  /** Caminho do mercador: entra pelo oeste, para no mercado e sai pelo leste. */
+  private planMerchant(): void {
+    if (!this.merchant) return;
+    const mk = this.structures.find(s => s.kind === 'mercado');
+    if (!mk) return;
+    const tx = mk.x + 1, ty = mk.y + 1, edge = (east: boolean) => {
+      for (let r = 0; r < ROWS; r++) for (const y of [ty - r, ty + r]) {
+        const x = east ? COLS - 1 : 0;
+        if (y >= 0 && y < ROWS && this.terrain.comp[y * COLS + x] && this.terrain.passable(y * COLS + x)) return { x, y };
+      }
+      return null;
+    };
+    const w = edge(false), e = edge(true);
+    if (!w || !e) return;
+    const a = this.bfs(w.x, w.y, tx, ty), b = this.bfs(tx, ty, e.x, e.y);
+    if (!a || !b) return;
+    this.merchantPath = [w.y * COLS + w.x, ...a, ...b];
+    this.merchantStop = a.length;
+  }
+
+  /** Onde está o mercador no tick fracionário tf: anda das 9h, fica no mercado e sai antes das 17h. */
+  merchantAt(tf: number): { x: number; y: number; face: 1 | -1; walking: boolean } | null {
+    const P = this.merchantPath;
+    if (!P.length || this.weather(Math.floor(tf)).storm) return null;
+    const STEP = 3, t9 = 9 * TICKS_PER_HOUR, t17 = 17 * TICKS_PER_HOUR, back = P.length - 1 - this.merchantStop;
+    let idx: number, walking = true, face: 1 | -1 = 1;
+    if (tf < t9 || tf > t17) return null;
+    const out = t17 - back * STEP;
+    if (tf < t9 + this.merchantStop * STEP) idx = (tf - t9) / STEP;
+    else if (tf < out) { idx = this.merchantStop; walking = false; face = Math.floor(tf / 120) % 2 ? 1 : -1; }
+    else idx = this.merchantStop + (tf - out) / STEP;
+    const i0 = Math.min(P.length - 1, Math.floor(idx)), i1 = Math.min(P.length - 1, i0 + 1), f = idx - Math.floor(idx);
+    const x0 = P[i0]! % COLS, y0 = (P[i0]! / COLS) | 0, x1 = P[i1]! % COLS, y1 = (P[i1]! / COLS) | 0;
+    if (walking) face = x1 >= x0 ? 1 : -1;
+    return { x: x0 + (x1 - x0) * f, y: y0 + (y1 - y0) * f, face, walking };
+  }
+
+  /** Semana do conselho a que o tick t pertence (muda na quarta às 19h30). */
+  private weekOf(t: number): number {
+    const ms = this.genesis + t * TICK_MS + (this.world.timezoneOffsetHours ?? -3) * 3_600_000;
+    // 1/1/1970 foi quinta: desloca para a semana começar na quarta às 19h30
+    return Math.floor((ms - (6 * DAY_MS + 19.5 * 3_600_000)) / (7 * DAY_MS));
+  }
+
+  /** O conselho vota se as duas próximas obras trocam de ordem. */
+  private applyVote(week: number, announce: boolean): void {
+    if (week === this.voteWeek) return;
+    this.voteWeek = week;
+    const next = this.structures.filter(s => !s.built).sort((p, q) => p.need - q.need).slice(0, 2);
+    if (next.length < 2) return;
+    const swap = h32(week, 8, this.terrain.seed) % 2 === 1;
+    if (swap) { const n = next[0]!.need; next[0]!.need = next[1]!.need; next[1]!.need = n; }
+    if (announce) this.note(`Conselho na ágora: a vila votou e a próxima obra será ${swap ? next[1]!.kind : next[0]!.kind}`, 'evento');
+  }
+
+  /** Notas do começo do dia: forks recentes, pedidos e o ecossistema. */
+  private startNotes(): void {
+    const day = this.genesis;
+    for (const f of this.extra.forks ?? []) { const at = Date.parse(f.at); if (at >= day - DAY_MS && at < day + DAY_MS) { const c = this.forks.find(k => k.login === f.login); if (c) this.note(`${f.login} fez um fork e montou acampamento na borda da floresta`, 'github'); } }
+    const open = this.requests.filter(q => q.state === 'open').length;
+    if (open) this.note(`${open} pedido${open > 1 ? 's' : ''} no quadro da ágora`, 'github');
+    this.note(`Ecossistema: ${this.eco.rabbits} coelhos e ${this.eco.foxes} raposas na mata`, 'evento');
+  }
+
+  /** Festa na ágora nas 3 horas depois de um pedido atendido. */
+  isParty(t = this.tick): boolean {
+    const ms = this.genesis + t * TICK_MS;
+    return this.requests.some(q => q.state === 'closed' && q.closedAt !== undefined && ms >= q.closedAt && ms < q.closedAt + 3 * 3_600_000);
+  }
+  /** Conselho: quarta das 19h às 20h. */
+  isCouncil(t = this.tick): boolean { const h = hourAt(t); return this.weekday === WED && h >= 19 && h < 20; }
+
+  /** Cervo branco: só em noite de lua cheia, da meia-noite e meia às 4h, perto de uma árvore antiga. */
+  deerAt(tf: number): Point | null {
+    const t = Math.floor(tf), h = hourAt(t);
+    if (h < 0.5 || h >= 4 || !isFullMoon(this.genesis + t * TICK_MS) || !this.terrain.wild.length) return null;
+    const day = Math.floor(this.genesis / DAY_MS), w = this.terrain.wild[h32(day, 61, this.terrain.seed) % this.terrain.wild.length]!;
+    const n = this.terrain.noise;
+    const x = w.x + n(tf * 0.0015, 1.1, day % 97) * 8, y = w.y + n(2.2, tf * 0.0015, day % 89) * 4;
+    // cervo não anda na água: se o passeio cair num lago, fica pastando perto da árvore
+    const i = Math.round(y) * COLS + Math.round(x);
+    return this.terrain.T[i] !== undefined && this.terrain.T[i]! > Tile.Shallow ? { x, y } : { x: w.x + 1, y: w.y + 0.5 };
   }
 
   /** Quantos moradores já chegaram: é isso que move as obras. */
@@ -127,6 +286,8 @@ export class Simulation {
       this.terrain.version++;
       if (announce) this.note(`A vila construiu ${s.kind === 'lanternas' ? 'as lanternas da ágora' : s.kind === 'jardim' ? 'um jardim em volta do poço' : s.kind === 'píer' ? 'um píer no lago' : `um${s.kind === 'estátua' ? 'a' : ''} ${s.kind}`} (${s.need} stars)`, 'obra');
     }
+    if (!this.templeOpen && n >= 25) { this.templeOpen = true; this.terrain.version++; if (announce) this.note('Com 25 stars a mata se abriu e revelou um templo escondido', 'lenda'); }
+    if (!this.crystalLit && n >= 50) { this.crystalLit = true; if (announce) this.note('Com 50 stars o cristal do templo acendeu', 'lenda'); }
     const want = Math.min(this.brokenCols.length, Math.max(0, Math.floor((n - 2) / STARS_PER_COLUMN) + 1));
     while (this.restored < want) {
       const col = this.terrain.columns[this.brokenCols[this.restored]!]!;
@@ -151,7 +312,7 @@ export class Simulation {
   /** Clima do tick (guardado: decide() consulta muitas vezes por tick). */
   weather(t = this.tick): Weather {
     if (t === this.wTick) return this.wNow;
-    const w = weatherAt(this.terrain.noise, (this.genesis + t * TICK_MS) / 3_600_000, hourAt(t));
+    const w = weatherAt(this.terrain.noise, (this.genesis + t * TICK_MS) / 3_600_000, hourAt(t), this.bias);
     if (t === this.tick) { this.wTick = t; this.wNow = w; }
     return w;
   }
@@ -161,6 +322,7 @@ export class Simulation {
   addLocal(login: string): Agent {
     const a = this.makeAgent(login, this.tick + 1, { local: true });
     this.agents.push(a);
+    this.relate(a);
     return a;
   }
 
@@ -178,6 +340,7 @@ export class Simulation {
     }
     if (this.tick % 240 === 0) this.seasonPass();
     this.skyAndEvents();
+    if (this.fire && this.tick - this.fire.start > 900) this.putOut(true);
   }
 
   /** Clima que muda, estrelas cadentes e eventos marcados, tudo anotado no diário. */
@@ -193,6 +356,41 @@ export class Simulation {
     if ((h >= 20 || h < 5) && this.weather().cloud < 0.5 && h32(t, 99, seed) % 2400 === 0) { this.shootingAt = t; this.note('Uma estrela cadente cruzou o céu', 'céu'); }
     if (t === Math.round(8 * TICKS_PER_HOUR) && (this.weekday === 0 || this.weekday === 6)) this.note('Dia de feira na ágora', 'evento');
     if (t === Math.round(20 * TICKS_PER_HOUR) && this.weekday === 5) this.note('Corrida de vaga-lumes em volta da ágora', 'evento');
+    if (t === Math.round(19.5 * TICKS_PER_HOUR) && this.weekday === WED) this.applyVote(this.weekOf(t), true);
+    if (t === Math.round(19 * TICKS_PER_HOUR) && this.weekday === WED) this.note('O conselho se reúne na ágora', 'evento');
+    if (t === Math.round(9 * TICKS_PER_HOUR) && this.merchantPath.length) this.note(`O mercador ${this.merchant} chegou pelo oeste com sua carroça`, 'github');
+    if (t === Math.round(0.75 * TICKS_PER_HOUR) && this.deerAt(t)) this.note('Lua cheia: alguém jura ter visto o cervo branco entre as árvores', 'lenda');
+    for (const q of this.requests) {
+      if (q.state !== 'closed' || q.closedAt === undefined) continue;
+      const at = Math.floor((q.closedAt - this.genesis) / TICK_MS);
+      if (at === t || (t === 1 && at < 1 && at > -6 * TICKS_PER_HOUR)) this.note(`Pedido #${q.n} atendido: "${q.title}". Festa na ágora!`, 'github');
+    }
+    // raio numa árvore: só em tempestade, no máximo uma vez por dia
+    if (t % 120 === 0 && !this.fire && !this.fireDone && this.weather().storm && h32(t, 55, seed) % 4 === 0) this.ignite(t);
+  }
+
+  private ignite(t: number): void {
+    const ag = this.terrain.agora, wild = this.terrain.wild, seed = this.terrain.seed;
+    for (let k = 0; k < 30 && wild.length; k++) {
+      const w = wild[h32(t, 56 + k, seed) % wild.length]!;
+      if (Math.abs(w.x - ag.x) < ag.rx + 8 && Math.abs(w.y - ag.y) < ag.ry + 6) continue;
+      if (!this.terrain.passable(w.y * COLS + w.x + 1) && !this.terrain.passable((w.y + 1) * COLS + w.x)) continue;
+      this.fire = { x: w.x, y: w.y, hp: 6, start: t, out: -1 };
+      const who = this.agents.filter(a => a.present).sort((p, q) => Math.abs(p.home.x - w.x) + Math.abs(p.home.y - w.y) - Math.abs(q.home.x - w.x) - Math.abs(q.home.y - w.y))[0];
+      this.note(`Um raio acertou uma árvore${who ? ` perto da casa de ${who.name}` : ''}! Mutirão de baldes`, 'evento');
+      return;
+    }
+  }
+
+  /** O fogo apaga (pelos baldes ou pela chuva) e a vila replanta uma muda no lugar. */
+  private putOut(rain: boolean): void {
+    const f = this.fire!;
+    this.fire = null; this.fireDone = true;
+    this.terrain.wild = this.terrain.wild.filter(w => !(w.x === f.x && w.y === f.y));
+    this.terrain.version++;
+    this.trees.push({ x: f.x, y: f.y, sp: h32(f.x, f.y, 9) % SPECIES.length, growth: 0, lastWater: this.tick });
+    const crew = this.agents.filter(a => a.state === 'BUCKET').length;
+    this.note(`${rain ? 'A chuva e o mutirão' : `O mutirão de ${Math.max(crew, 2)} moradores`} apagou o fogo e replantou uma muda no lugar`, 'trabalho');
   }
 
   /** Feira: sábado e domingo das 9h às 17h. Corrida de vaga-lumes: sexta das 20h às 21h. */
@@ -211,36 +409,36 @@ export class Simulation {
   }
 
   // ---------- moradores ----------
-  private makeAgent(name: string, arriveTick: number, meta: AgentMeta): Agent {
+  private makeAgent(name: string, arriveTick: number, meta: AgentMeta, mate?: Agent): Agent {
     const r = mulberry32(fnv(name.toLowerCase()));
-    const hue = Math.floor(r() * 360);
-    const pick = <T>(arr: readonly T[]) => arr[Math.floor(r() * arr.length)]!;
-    const look = {
-      skin: pick(SKIN), hair: pick(HAIR), shirt: css(hsl(hue, 0.62, 0.55)), pants: pick(PANTS),
-      hat: pick(HATS), hatc: css(hsl((hue + 150 + r() * 60) % 360, 0.6, 0.55)),
-    };
+    const { hue, look: base } = lookFrom(r), look = age(base, name, meta.days ?? 0);
     const a: Agent = {
       name, r, hue, col: hsl(hue, 0.7, 0.7), look, species: Math.floor(r() * SPECIES.length), pace: 2 + Math.floor(r() * 3),
       traits: { energy: 0.25 + r() * 0.75, social: r(), gardener: r(), wander: r() },
       arriveTick, meta, present: false, x: 0, y: 0, px: 0, py: 0, mt: 0, face: 1, state: 'ARRIVE', phase: 'go', wait: 0, path: [],
       dir: Math.floor(r() * 4), steps: 0, boidLeft: 0, mv: [0, 0], tree: null, friend: null, plaza: null, bubble: '', bubbleUntil: 0, hut: false,
-      home: { x: 0, y: 0 }, chatAt: -9999,
+      home: { x: 0, y: 0 }, chatAt: -9999, friends: [], rivals: [], partner: null, inside: false, crystals: 0,
       prof: fnv(name.toLowerCase() + '#prof') % PROFS.length, owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
     };
-    a.home = this.pickHome(a);
+    a.home = this.pickHome(a, mate?.home);
+    if (mate && Math.abs(a.home.x - mate.home.x) < 16 && Math.abs(a.home.y - mate.home.y) < 8) { a.partner = mate; mate.partner = a; }
     return a;
   }
 
-  private pickHome(a: Agent): Point {
+  private pickHome(a: Agent, near?: Point): Point {
     const { T, comp, block, plazas } = this.terrain;
     for (let k = 0; k < 900; k++) {
-      const relax = k > 600, x = 3 + Math.floor(a.r() * (COLS - 7)), y = 4 + Math.floor(a.r() * (ROWS - 6)), i = y * COLS + x;
+      // casal: as primeiras tentativas ficam a poucos passos da casa do par
+      const close = near && k < 300, relax = k > 600;
+      const x = close ? near.x + (a.r() < 0.5 ? -1 : 1) * (6 + Math.floor(a.r() * 6)) : 3 + Math.floor(a.r() * (COLS - 7));
+      const y = close ? near.y + Math.floor(a.r() * 7) - 3 : 4 + Math.floor(a.r() * (ROWS - 6)), i = y * COLS + x;
+      if (x < 4 || x > COLS - 4 || y < 4 || y > ROWS - 2) continue;
       let ok = true;
       for (const j of houseCells(i, true)) if (!(T[j] === Tile.Grass || T[j] === Tile.Forest) || !comp[j] || block[j]) ok = false;
       const ag = this.terrain.agora;
       if (!ok || plazas.some(p => Math.abs(p.x - x) < 10 && Math.abs(p.y - y) < 6)) continue;
       if (((x - ag.x) / (ag.rx + 6)) ** 2 + ((y - ag.y) / (ag.ry + 4)) ** 2 < 1) continue;
-      if (!relax && this.reserved.some(p => Math.abs(p.x - x) < 8 && Math.abs(p.y - y) < 4)) continue;
+      if (!relax && this.reserved.some(p => Math.abs(p.x - x) < (close ? 6 : 8) && Math.abs(p.y - y) < (close ? 2 : 4))) continue;
       this.reserved.push({ x, y });
       return { x, y };
     }
@@ -399,6 +597,8 @@ export class Simulation {
     const storm = wx.storm ? 1 : 0, fog = wx.fog > 0.35 ? 1 : 0, day = h >= 7 && h < 18;
     const thirsty = !!a.tree && this.tick - a.tree.lastWater > 1600;
     const prof = PROFS[a.prof], owl = a.owl ? 1 : 0, late = h >= 22 || h < 5, out = (1 - storm) * (rain ? 0.3 : 1), fair = this.isFair() ? 1 : 0;
+    const council = this.isCouncil() ? 1 : 0, party = this.isParty() ? 1 : 0, fire = this.fire;
+    const cave = this.terrain.landmarks.find(l => l.kind === 'caverna'), board = this.requests.some(q => q.state === 'open');
     const w: [State, number][] = [
       ['WANDER', (0.4 + a.traits.wander * 1.2) * (night ? 0.25 : 1) * (fog ? 0.5 : 1) * (storm ? 0.05 : 1)],
       ['WATER', a.tree ? (thirsty && !rain ? 1.8 : 0.12) * (0.4 + a.traits.gardener) : 0],
@@ -406,7 +606,10 @@ export class Simulation {
       ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1) * (storm ? 0.05 : 1)],
       ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : late && owl ? 2 : 0.35) * (rain ? 0.2 : 1) * (1 - storm)],
       ['FISH', (prof === 'pescador' ? 0.8 : 0.15) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1)],
-      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm) * (fair ? 2.5 : 1)],
+      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day || council || party ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm) * (fair ? 2.5 : 1) * (party ? 3 : 1) + council * 9 * (1 - storm)],
+      ['MINE', prof === 'minerador' && day && cave ? 1.1 * (1 - storm) : 0],
+      ['TASK', board && day ? (0.12 + a.traits.social * 0.2) * out : 0],
+      ['BUCKET', fire && Math.abs(fire.x - a.x) < 90 && Math.abs(fire.y - a.y) < 45 ? 40 : 0],
       ['CHOP', prof === 'lenhador' && day ? 0.9 * out : 0],
       ['PLAY', prof === 'músico' && (day || evening) ? 0.8 * out : 0],
       ['GARDEN', prof === 'jardineiro' && day ? 0.9 * (1 - storm) : 0],
@@ -421,8 +624,20 @@ export class Simulation {
     if (st === 'WANDER') return this.startWalk(a);
     if (st === 'WATER' || st === 'REST') return this.goTo(a, a.home.x, a.home.y);
     if (st == 'FISH') {const p = this.fishSpot(a); return p ? this.goTo(a, p.x, p.y) : this.startWalk(a);}
+    if (st === 'MINE') { const c = this.terrain.landmarks.find(l => l.kind === 'caverna')!; return this.goTo(a, c.x, c.y + 1); }
+    if (st === 'TASK') { const q = this.terrain.landmarks.find(l => l.kind === 'quadro'); return q ? this.goTo(a, q.x, q.y + 1) : this.startWalk(a); }
+    if (st === 'BUCKET') {
+      const f = this.fire!;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [1, 1], [-1, 1], [2, 0], [-2, 0]] as const) {
+        const x = f.x + dx, y = f.y + dy;
+        if (x >= 0 && y >= 0 && x < COLS && y < ROWS && this.terrain.passable(y * COLS + x)) return this.goTo(a, x, y);
+      }
+      return this.startWalk(a);
+    }
     if (st === 'VISIT') {
-      let near = this.agents.filter(b => b !== a && b.present && b.hut && Math.abs(b.home.x - a.home.x) < 60 && Math.abs(b.home.y - a.home.y) < 30);
+      // amigos primeiro; rivais nunca
+      const pals = a.friends.filter(b => b.present && b.hut);
+      let near = pals.length && a.r() < 0.7 ? pals : this.agents.filter(b => b !== a && b.present && b.hut && !a.rivals.includes(b) && Math.abs(b.home.x - a.home.x) < 60 && Math.abs(b.home.y - a.home.y) < 30);
       if (!near.length) near = this.agents.filter(b => b !== a && b.present && b.hut);
       if (!near.length) return this.startWalk(a);
       const f = near[Math.floor(a.r() * near.length)]!;
@@ -552,6 +767,18 @@ export class Simulation {
         return;
       }
       if (a.state === 'BOAT') { a.wait = 200 + Math.floor(a.r() * 300); return; }
+      if (a.state === 'MINE') { a.inside = true; a.wait = 140 + Math.floor(a.r() * 160); a.bubble = ''; return; }
+      if (a.state === 'TASK') {
+        a.wait = 24 + Math.floor(a.r() * 20); a.bubble = '!'; a.bubbleUntil = tick + a.wait;
+        const open = this.requests.filter(q => q.state === 'open');
+        if (open.length && a.r() < 0.12) { const q = open[Math.floor(a.r() * open.length)]!; this.note(`${a.name} leu o pedido #${q.n} no quadro: "${q.title}"`, 'github'); }
+        return;
+      }
+      if (a.state === 'BUCKET') {
+        a.wait = 10 + Math.floor(a.r() * 8); a.bubble = 'balde'; a.bubbleUntil = tick + a.wait;
+        if (this.fire && --this.fire.hp <= 0) this.putOut(false);
+        return;
+      }
       if (a.state === 'SIGHT') {
         a.wait = 60 + Math.floor(a.r() * 90); a.bubble = a.sight === 'moinho' ? '~' : a.sight === 'torre de vigia' ? '!' : '*'; a.bubbleUntil = tick + 12;
         if (a.r() < 0.08) this.note(`${a.name} foi até ${a.sight === 'moinho' ? 'o moinho' : a.sight === 'ponte' ? 'a ponte' : a.sight === 'barraca' ? 'o acampamento' : `o ${a.sight === 'torre de vigia' ? 'alto da torre de vigia' : a.sight}`}`, 'encontro');
@@ -585,6 +812,10 @@ export class Simulation {
       return;
     }
     if (a.state === 'PLANT') this.build(a);
+    if (a.state === 'MINE' && a.inside) {
+      a.inside = false;
+      if (a.r() < 0.5) { a.crystals++; a.bubble = '◆'; a.bubbleUntil = tick + 16; if (a.crystals === 1 || a.r() < 0.1) this.note(`${a.name} saiu da caverna com um cristal`, 'trabalho'); }
+    }
     if (a.state === 'WATER' && a.tree) a.tree.lastWater = tick;
     if ((a.state === 'FISH' || a.state === 'BOAT') && a.r() < (PROFS[a.prof] === 'pescador' ? 0.6 : 0.3)) {
       const roll = a.r(), fish = roll < 0.04 ? 'um peixe dourado' : roll < 0.1 ? 'uma bota velha' : ['um lambari', 'uma traíra', 'um bagre'][Math.floor(a.r() * 3)]!;
@@ -602,7 +833,10 @@ export class Simulation {
       if (b === a || !b.present || !(b.phase === 'walk' || (b.phase === 'go' && b.state !== 'ARRIVE')) || tick - b.chatAt < 400) continue;
       if (Math.abs(b.x - a.x) > 3 || Math.abs(b.y - a.y) > 2) continue;
       a.chatAt = b.chatAt = tick;
-      if (a.r() < 0.25 + 0.5 * (a.traits.social + b.traits.social) / 2) {
+      if (a.rivals.includes(b)) { a.bubble = b.bubble = 'hmpf'; a.bubbleUntil = b.bubbleUntil = tick + 8; return false; }
+      const pals = a.friends.includes(b);
+      if (pals || a.r() < 0.25 + 0.5 * (a.traits.social + b.traits.social) / 2) {
+        if (pals && a.r() < 0.05) this.note(`${a.name} e ${b.name}, amigos de longa data, pararam para conversar`, 'amizade');
         const len = 30 + Math.floor(a.r() * 50);
         for (const [p, q] of [[a, b], [b, a]] as const) {
           p.state = 'CHAT'; p.phase = 'stay'; p.wait = len; p.friend = q; p.path = [];
@@ -622,6 +856,7 @@ export class Simulation {
   private seasonPass(): void {
     const rain = this.isRain(), { T } = this.terrain, seed = this.terrain.seed;
     for (const t of this.trees) { const watered = this.tick - t.lastWater < 1800; t.growth += (rain ? 2 : 1) * (watered ? 1.5 : 1); }
+    for (const i of this.trail) this.wear[i] = Math.max(this.wear[i]!, 6.5);
     for (let i = 0; i < N; i++) {
       if (this.wear[i]! > 0) { this.wear[i]! *= 0.945; if (this.wear[i]! < 0.05) this.wear[i] = 0; }
       if (this.gardenCells.has(i)) continue;

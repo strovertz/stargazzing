@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vitest/config';
+import { LOGIN, residentCard, villageCard } from './src/cards/svg';
+import type { WorldFile } from './src/sim/types';
 
 // CSP só no build: o servidor de dev do Vite injeta estilos inline.
 const csp: Plugin = {
@@ -11,10 +14,23 @@ const csp: Plugin = {
     ),
 };
 
+// Cartões SVG animados para README: /cards/{login}.svg para cada morador e /card.svg da vila.
+const SITE = 'https://strovertz.github.io/stargazzing/';
+const cards: Plugin = {
+  name: 'cards',
+  apply: 'build',
+  generateBundle() {
+    const world = JSON.parse(readFileSync(new URL('./public/world.json', import.meta.url), 'utf8')) as WorldFile;
+    const now = Date.now(), list = world.stargazers.filter(e => LOGIN.test(e.login));
+    for (const e of list) this.emitFile({ type: 'asset', fileName: `cards/${e.login.toLowerCase()}.svg`, source: residentCard(e, now, SITE) });
+    this.emitFile({ type: 'asset', fileName: 'card.svg', source: villageCard(list, now) });
+  },
+};
+
 // No GitHub Pages o site fica em https://strovertz.github.io/stargazzing/
 export default defineConfig({
   base: process.env.GITHUB_ACTIONS ? '/stargazzing/' : '/',
-  plugins: [csp],
+  plugins: [csp, cards],
   build: { target: 'es2022', sourcemap: true },
   test: { environment: 'node' },
 });

@@ -26,6 +26,8 @@ export class Ambience {
   private st: AmbienceState = { rain: 0, wind: 0.3, storm: false, day: 1, fire: 0, crowd: 0, flash: 0 };
   private nextBird = 0; private nextCricket = 0; private nextCrackle = 0; private nextNote = 0; private lastFlash = 0;
   private note = 2; private timer = 0;
+  /** rádio da taverna: a melodia da noite (sorteada pela data) e a posição nela */
+  tune: number[] = []; private ti = 0;
   on = false;
 
   /** Precisa vir de um clique (política de autoplay dos navegadores). */
@@ -100,7 +102,7 @@ export class Ambience {
     }
     if (s.fire > 0.15 && s.crowd >= 2 && !s.storm) {
       if (this.nextNote < t) this.nextNote = t + 0.05;
-      while (this.nextNote < ahead) { this.pluck(this.nextNote, s.fire); this.nextNote += [0.32, 0.32, 0.64, 0.16][Math.floor(Math.random() * 4)]!; }
+      while (this.nextNote < ahead) { this.pluck(this.nextNote, s.fire); this.nextNote += this.tune.length ? [0.32, 0.32, 0.64, 0.32, 0.16, 0.48][(this.ti * 7 + this.note) % 6]! : [0.32, 0.32, 0.64, 0.16][Math.floor(Math.random() * 4)]!; }
     }
     if (s.storm && s.flash > 0.5 && t - this.lastFlash > 1.5) { this.lastFlash = t; this.thunder(t + 0.4 + Math.random() * 1.6); }
   }
@@ -152,7 +154,7 @@ export class Ambience {
   /** Alaúde de taverna: corda dedilhada (triângulo + filtro que fecha) andando pela pentatônica. */
   private pluck(at: number, near: number): void {
     const ctx = this.ctx!;
-    this.note = Math.max(0, Math.min(PENTA.length - 1, this.note + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)]!));
+    this.note = this.tune.length ? Math.min(PENTA.length - 1, this.tune[this.ti++ % this.tune.length]!) : Math.max(0, Math.min(PENTA.length - 1, this.note + [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)]!));
     const freq = 220 * 2 ** (PENTA[this.note]! / 12);
     for (const [mult, vol] of [[1, 1], [2, 0.3]] as const) {
       const o = ctx.createOscillator(), f = ctx.createBiquadFilter();

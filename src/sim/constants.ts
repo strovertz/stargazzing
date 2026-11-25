@@ -7,8 +7,9 @@ export const TICKS_PER_HOUR = 3_600_000 / TICK_MS;
 export const DAY_MS = 86_400_000;
 
 /** Tipos de célula. */
-export const Tile = { Deep: 0, Shallow: 1, Sand: 2, Grass: 3, Forest: 4, Rock: 5, Wall: 6, Floor: 7 } as const;
-export const WALKABLE = new Uint8Array([0, 0, 1, 1, 1, 0, 0, 1]);
+export const Tile = { Deep: 0, Shallow: 1, Sand: 2, Grass: 3, Forest: 4, Rock: 5, Wall: 6, Floor: 7, Stream: 8 } as const;
+/** o riacho é raso: dá para atravessar a vau */
+export const WALKABLE = new Uint8Array([0, 0, 1, 1, 1, 0, 0, 1, 1]);
 
 export const DIR4: ReadonlyArray<readonly [number, number]> = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 export const DIR8: ReadonlyArray<readonly [number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
@@ -36,5 +37,5 @@ export type Hat = (typeof HATS)[number];
 /** A cabana fica centrada em home.x - HOUSE_DX e ocupa 3 células (home.x-3..home.x-1), duas linhas de fundo. */
 export const HOUSE_DX = 2;
 /** Profissão sai do hash do login: muda a rotina e o item que o morador carrega. */
-export const PROFS = ['lenhador', 'pescador', 'músico', 'jardineiro', 'explorador'] as const;
+export const PROFS = ['lenhador', 'pescador', 'músico', 'jardineiro', 'explorador', 'minerador'] as const;
 export type Prof = (typeof PROFS)[number];

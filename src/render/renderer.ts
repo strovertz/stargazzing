@@ -5,9 +5,10 @@ import { hourAt, stageOf, type Simulation } from '../sim/simulation';
 import { lightningAt } from '../sim/weather';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
-import { boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, houseSprite, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
+import { boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, houseSprite, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
 import { spritesFor, toolSprite } from './sprites';
-import { drawAnimals, drawCat } from './animals';
+import { drawAnimals, drawCat, drawDeer } from './animals';
+import { lookFor } from '../sim/look';
 import { clearTreeCache, treeSprite } from './trees';
 
 export const CW = 10;
@@ -15,7 +16,7 @@ export const CH = 18;
 export const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25, 1.6, 2];
 
 /** Cores do minimapa (1 pixel por célula). */
-const MINI: Record<number, RGB> = { 0: hex('#0b2333'), 1: hex('#16405a'), 2: hex('#5e5139'), 3: hex('#1f4a2b'), 4: hex('#12291a'), 5: hex('#474a51'), 6: hex('#50505a'), 7: hex('#2e2e35') };
+const MINI: Record<number, RGB> = { 0: hex('#0b2333'), 1: hex('#16405a'), 2: hex('#5e5139'), 3: hex('#1f4a2b'), 4: hex('#12291a'), 5: hex('#474a51'), 6: hex('#50505a'), 7: hex('#2e2e35'), 8: hex('#2f789c') };
 /** Luz do dia (1 = meio-dia). O mundo nunca fica totalmente claro: há sempre uma penumbra. */
 const DARK_SCALE = 0.25;
 const CHAT = ['…', '!', '?', '♪', '☺', 'ha', 'hm', '♥', '…'];
@@ -42,12 +43,25 @@ export class Renderer {
   private readonly dark = document.createElement('canvas');
   private readonly dx: CanvasRenderingContext2D;
   private readonly mini = document.createElement('canvas');
+  /** chão do minimapa, sem moradores (usado no timelapse) */
+  miniGround(): HTMLCanvasElement { if (this.miniVersion !== this.sim.groundVersion) this.buildMini(); return this.mini; }
   private miniVersion = -1;
   /** quando true, o próximo drawScene desenha todos os blocos visíveis de uma vez (atrás da tela de carregamento ou após zoom) */
   warm = true;
   private groundCache: GroundCache;
   /** posição na tela de cada morador visível no último quadro */
   readonly screen = new Map<Agent, { x: number; y: number }>();
+  /** efeitos de brincadeira: chuva de estrelas (código Konami) e lanternas de papel soltas no céu (tecla L) */
+  private starRainUntil = 0;
+  private skyLanterns: { x: number; y: number; t0: number; hue: number }[] = [];
+  starRain(ts: number): void { this.starRainUntil = ts + 12; }
+  releaseLantern(ts: number): void {
+    const { ox, oy, vw, vh } = this.view();
+    this.skyLanterns.push({ x: ox + vw * (0.3 + Math.random() * 0.4), y: oy + vh * 0.75, t0: ts, hue: Math.floor(Math.random() * 60) });
+    if (this.skyLanterns.length > 30) this.skyLanterns.shift();
+  }
+  /** esconde nomes e balões (modo foto continua mostrando o mundo) */
+  hideLabels = false;
 
   constructor(private readonly bgc: HTMLCanvasElement, private readonly fgc: HTMLCanvasElement, miniCanvas: HTMLCanvasElement, public sim: Simulation) {
     this.bx = bgc.getContext('2d')!;
@@ -165,7 +179,7 @@ export class Renderer {
         if (w < windMin) continue;
         bx.fillStyle = w > 0.34 ? '#6fa86a' : '#4f8a52';
         bx.fillText(hs % 2 ? '/' : "'", (x - ox + 0.2 + (hs % 3) * 0.3) * cw, (y - oy + 0.25 + (hs % 4) * 0.18) * ch);
-      } else if (t <= Tile.Shallow && hs < 50) {
+      } else if ((t <= Tile.Shallow || t === Tile.Stream) && hs < 50) {
         const v = noise(x * 0.16, y * 0.32, ts * 0.25);
         if (v < 0.22) continue;
         bx.fillStyle = v > 0.34 ? '#5fa0c0' : '#2f6a88';
@@ -186,14 +200,16 @@ export class Renderer {
     this.screen.clear();
     const sx = (x: number) => (x - ox + 0.5) * cs, sy = (y: number) => (y - oy + 1) * ch;
     const inV = (x: number, y: number, up = 11) => x >= ox - 4 && x <= ox + vw + 4 && y >= oy - 1 && y <= oy + vh + up;
-    const list = sim.agents.filter(a => a.present && inV(a.x, a.y, 3));
+    const list = sim.agents.filter(a => a.present && !a.inside && inV(a.x, a.y, 3));
     type TreeDraw = { x: number; y: number; kind: string; variant: number; scale: number; thirsty: boolean };
     const trees: TreeDraw[] = [];
     for (const w of sim.terrain.wild) if (inV(w.x, w.y)) trees.push({ x: w.x, y: w.y, kind: ['mata-copa', 'mata-pinho', 'cipreste'][w.sp]!, variant: h32(w.x, w.y, 5) % 4, scale: w.big ? 1.1 : 0.75, thirsty: false });
-    for (const t of sim.trees) { const st = stageOf(t); if (st > 0 && inV(t.x, t.y)) trees.push({ x: t.x, y: t.y, kind: SPECIES[t.sp]!.n, variant: h32(t.x, t.y, 5) % 4, scale: [0, 0.4, 0.7, 1][st]!, thirsty: sim.tick - t.lastWater > 3000 && !rain }); }
+    for (const t of sim.trees) { const st = stageOf(t); if (st > 0 && inV(t.x, t.y)) trees.push({ x: t.x, y: t.y, kind: SPECIES[t.sp]!.n, variant: h32(t.x, t.y, 5) % 4, scale: [0, 0.4, 0.7, 1][st]! * ((t.age ?? 0) >= 30 ? 1.3 : (t.age ?? 0) >= 14 ? 1.15 : 1), thirsty: sim.tick - t.lastWater > 3000 && !rain }); }
     const evening = L < 0.95;
     const houses = sim.agents.filter(a => a.hut && inV(a.home.x - HOUSE_DX, a.home.y, 4)).map(a => ({ a, spr: houseSprite(a.hue, evening, cs, ch, this.dpr) }));
-    const fires = sim.terrain.plazas.filter(p => inV(p.x, p.y, 3));
+    const fires: { x: number; y: number }[] = sim.terrain.plazas.filter(p => inV(p.x, p.y, 3));
+    const burn = sim.fire && inV(sim.fire.x, sim.fire.y, 8) ? sim.fire : null;
+    const party = sim.isParty();
     const sprites = trees.map(t => ({ t, spr: treeSprite(t.kind, t.variant, t.scale, t.thirsty, z, this.dpr, CW, CH, sim.season) }));
 
     // sombras: direção e comprimento pela posição do sol; à noite só um contato leve no chão
@@ -250,6 +266,13 @@ export class Renderer {
           const spr = menhirSprite(lm.v + dx, L < 0.5, cs, ch, this.dpr), x = lm.x + dx, y = lm.y + dy;
           ds.push({ y: y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(x) - spr.w / 2, sy(y) - spr.h + ch * 0.1, spr.w, spr.h) });
         }
+        continue;
+      }
+      if (lm.kind === 'caverna' || lm.kind === 'templo' || lm.kind === 'quadro') {
+        const open = sim.requests.filter(q => q.state === 'open').length;
+        const spr = lm.kind === 'caverna' ? caveSprite(cs * 1.3, ch * 1.3, this.dpr) : lm.kind === 'templo' ? templeSprite(sim.templeOpen, sim.crystalLit, cs, ch, this.dpr) : boardSprite(open, cs * 1.4, ch * 1.4, this.dpr);
+        const cx0 = sx(lm.x + (lm.w - 1) / 2), y = lm.kind === 'caverna' ? lm.y + 0.6 : lm.y;
+        ds.push({ y: lm.y + 0.02, draw: () => fx.drawImage(spr.canvas, cx0 - spr.w / 2, sy(y) - spr.h + ch * 0.1, spr.w, spr.h) });
         continue;
       }
       const spr = lm.kind === 'moinho' ? millSprite(cs * 1.6, ch * 1.6, this.dpr) : lm.kind === 'torre' ? towerSprite(cs * 1.5, ch * 1.5, this.dpr) : tentSprite(lm.v % 360, cs * 1.2, ch * 1.2, this.dpr);
@@ -310,6 +333,22 @@ export class Renderer {
         }
       } });
     }
+    // acampamentos de quem fez fork
+    for (const k of sim.forks) {
+      if (!inV(k.x, k.y, 5)) continue;
+      const spr = tentSprite(h32(k.x, k.y, 3) % 360, cs * 1.2, ch * 1.2, this.dpr), cx0 = sx(k.x + 0.5);
+      ds.push({ y: k.y + 0.02, draw: () => fx.drawImage(spr.canvas, cx0 - spr.w / 2, sy(k.y) - spr.h + ch * 0.1, spr.w, spr.h) });
+    }
+    // mercador do dia com a carroça
+    const mc = sim.merchant ? sim.merchantAt(tf) : null;
+    if (mc && inV(mc.x, mc.y, 3)) {
+      const look = lookFor(sim.merchant!).look, spr = spritesFor(`@m:${sim.merchant}`, look), cart = cartSprite(cs, ch, this.dpr);
+      ds.push({ y: mc.y, draw: () => {
+        const x = sx(mc.x), y = sy(mc.y), fr = mc.walking && Math.floor(tf * 1.4) % 2 ? spr.step : spr.stand;
+        fx.drawImage(cart.canvas, x - mc.face * cs * 1.8 - cart.w / 2, y - cart.h + ch * 0.1, cart.w, cart.h);
+        fx.save(); fx.translate(x, y - 14 * sc - z); if (mc.face < 0) fx.scale(-1, 1); fx.drawImage(fr, -4 * sc, 0, 8 * sc, 14 * sc); fx.restore();
+      } });
+    }
     for (const a of list) {
       const f = Math.min(1, Math.max(0, (tf - a.mt) / a.pace)), wx = a.px + (a.x - a.px) * f, wy = a.py + (a.y - a.py) * f, moving = f < 1;
       const p = { x: sx(wx), y: sy(wy) };
@@ -349,6 +388,8 @@ export class Renderer {
     }
 
     // escuridão com furos de luz (fogueiras sempre; janelas ao anoitecer)
+    if (burn) fires.push({ x: burn.x, y: burn.y - 1 });
+    const crystals = evening ? houses.filter(o => o.a.crystals > 0) : [];
     const dark = 0.05 + (1 - L) * 0.47 + wx.cloud * 0.06 + wx.rain * 0.06 + (wx.storm ? 0.08 : 0);
     const flick = (k: number) => 1 + Math.sin(ts * 11 + k) * 0.05 + Math.sin(ts * 23 + k * 3) * 0.035;
     if (dark < 0.12) {
@@ -367,6 +408,9 @@ export class Renderer {
       for (const p of fires) hole(sx(p.x), sy(p.y) - ch * 0.5, cs * 11 * flick(p.x), 0.95);
       if (evening) for (const { a, spr } of houses) hole(sx(a.home.x - HOUSE_DX), sy(a.home.y) - spr.h * 0.3, cs * 4.5, 0.8 * (1 - L));
       if (lanternsOn && evening) for (const [lx, ly] of sim.lanterns) hole(sx(lx), sy(ly) - ch * 1.6, cs * 5, 0.75 * (1 - L));
+      for (const { a } of crystals) hole(sx(a.home.x - HOUSE_DX + 1), sy(a.home.y) - ch * 0.4, cs * 3, 0.6 * (1 - L));
+      if (sim.crystalLit) for (const lm of sim.terrain.landmarks) if (lm.kind === 'templo') hole(sx(lm.x + 3), sy(lm.y) - ch * 2.6, cs * 8, 0.8);
+      for (const lt of this.skyLanterns) { const u = ts - lt.t0; if (u < 25) hole(sx(lt.x + Math.sin(u * 0.4) * 2), sy(lt.y - u * 0.9), cs * 3, 0.5 * (1 - u / 25)); }
       fx.imageSmoothingEnabled = true;
       fx.drawImage(this.dark, 0, 0, this.dark.width / DARK_SCALE, this.dark.height / DARK_SCALE);
       fx.imageSmoothingEnabled = false;
@@ -376,8 +420,17 @@ export class Renderer {
     if (lanternsOn && evening) for (const [lx, ly] of sim.lanterns) { const x = sx(lx), y = sy(ly) - ch * 1.6, r = cs * 2.2; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,210,120,${0.3 * (1 - L)})`); g.addColorStop(1, 'rgba(255,210,120,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
     for (const p of fires) { const x = sx(p.x), y = sy(p.y) - ch * 0.5, r = cs * 6 * flick(p.x + 9); const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,150,60,${0.32 + (1 - L) * 0.2})`); g.addColorStop(1, 'rgba(255,120,40,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
     if (evening) for (const { a, spr } of houses) { const x = sx(a.home.x - HOUSE_DX), y = sy(a.home.y) - spr.h * 0.3, r = cs * 2; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(255,190,90,${0.22 * (1 - L)})`); g.addColorStop(1, 'rgba(255,190,90,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
+    for (const { a } of crystals) { const x = sx(a.home.x - HOUSE_DX + 1), y = sy(a.home.y) - ch * 0.4, r = cs * 1.6; const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(190,150,255,${0.45 * (1 - L)})`); g.addColorStop(1, 'rgba(190,150,255,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
+    if (sim.crystalLit) for (const lm of sim.terrain.landmarks) if (lm.kind === 'templo' && inV(lm.x + 3, lm.y, 8)) { const x = sx(lm.x + 3), y = sy(lm.y) - ch * 2.6, r = cs * (3 + Math.sin(ts * 1.5) * 0.4); const g = fx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(200,170,255,.55)'); g.addColorStop(1, 'rgba(200,170,255,0)'); fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, r, 0, 7); fx.fill(); }
     fx.globalCompositeOperation = 'source-over';
-    for (const p of fires) drawFire(fx, sx(p.x), sy(p.y) - ch * 0.45, cs * 1.5, ch * 1.5, ts, seed + p.x);
+    if (burn) {
+      // árvore em chamas: fogo alto e fumaça subindo
+      drawFire(fx, sx(burn.x), sy(burn.y) - ch * 1.4, cs * 2.4, ch * 2.2, ts, seed + 77);
+      fx.font = `700 ${Math.round(10 * z + 4)}px "JetBrains Mono",monospace`;
+      for (let k = 0; k < 8; k++) { const life = (ts * 0.4 + k / 8) % 1; fx.fillStyle = `rgba(110,110,118,${0.5 * (1 - life)})`; fx.fillText(k % 2 ? 'O' : 'o', sx(burn.x) + Math.sin(ts + k * 1.7) * 6 * z + life * 14 * z, sy(burn.y) - ch * 2.6 - life * 60 * z); }
+    }
+    drawDeer(fx, sim, view, tf);
+    for (const p of fires) if (p !== fires[fires.length - 1] || !burn) drawFire(fx, sx(p.x), sy(p.y) - ch * 0.45, cs * 1.5, ch * 1.5, ts, seed + p.x);
 
     // vagalumes e chuva
     if (sim.isFireflyRace() && wx.rain < 0.2) {
@@ -450,6 +503,45 @@ export class Renderer {
         fx.fillStyle = '#c43c3c'; fx.fillRect(bx - 3 * z, by - 0.6 * z, 6 * z, 1.2 * z);
       }
     }
+    // festa de pedido atendido: confete caindo sobre a ágora
+    if (party && L > 0.3) {
+      const ag = sim.terrain.agora;
+      for (let k = 0; k < 70; k++) {
+        const u = ((ts * (0.15 + (k % 5) * 0.03) + (h32(k, 81, seed) % 1000) / 1000) % 1);
+        const x = sx(ag.x + (((h32(k, 82, seed) % 1000) / 1000) * 2 - 1) * ag.rx * 1.1 + Math.sin(ts * 2 + k) * 0.6), y = sy(ag.y - ag.ry * 1.6 + u * ag.ry * 2.6);
+        fx.fillStyle = ['#f2c14e', '#f07aa8', '#7cc4ff', '#86e095', '#ff9a5a'][k % 5]!;
+        fx.fillRect(x, y, 3 * z, (1.5 + Math.abs(Math.sin(ts * 6 + k)) * 2) * z);
+      }
+    }
+    // riacho: folhas e barquinhos de papel descendo a correnteza
+    if (z >= 0.65 && sim.terrain.stream.length > 10) {
+      const S = sim.terrain.stream;
+      fx.font = `700 ${Math.round(9 + 3 * z)}px "JetBrains Mono",monospace`;
+      for (let k = 0; k < 10; k++) {
+        const pos = ((ts * (1.2 + (k % 3) * 0.4) + k * (S.length / 10)) % S.length), c = S[Math.floor(pos)]!, x = c % COLS, y = (c / COLS) | 0;
+        if (!inV(x, y, 1)) continue;
+        const boat = k % 4 === 0;
+        fx.fillStyle = boat ? '#f4efe4' : (sim.season === 1 ? '#d88a30' : '#7a9a3c');
+        fx.fillText(boat ? '◣' : Math.sin(ts * 3 + k) > 0 ? ',' : '`', sx(x) + Math.sin(ts * 1.5 + k) * cs * 0.2, sy(y) - ch * 0.45);
+      }
+    }
+    // chuva de estrelas e lanternas no céu
+    if (ts < this.starRainUntil) {
+      const left = this.starRainUntil - ts;
+      for (let k = 0; k < 40; k++) {
+        const u = ((ts * 0.6 + (h32(k, 91, 1) % 1000) / 1000) % 1), x0 = ((h32(k, 92, 1) % 1000) / 1000) * VW * 1.2;
+        const x = x0 - u * 220, y = u * VH * 0.9, a = Math.min(1, left / 3) * (1 - u);
+        const g = fx.createLinearGradient(x + 60, y - 30, x, y); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, `rgba(255,245,200,${a})`);
+        fx.strokeStyle = g; fx.lineWidth = 1.6; fx.beginPath(); fx.moveTo(x + 60, y - 30); fx.lineTo(x, y); fx.stroke();
+      }
+    }
+    this.skyLanterns = this.skyLanterns.filter(lt => ts - lt.t0 < 25);
+    for (const lt of this.skyLanterns) {
+      const u = ts - lt.t0, x = sx(lt.x + Math.sin(u * 0.4) * 2), y = sy(lt.y - u * 0.9), a = 1 - u / 25;
+      const g = fx.createRadialGradient(x, y, 0, x, y, 18); g.addColorStop(0, `rgba(255,${170 + lt.hue},90,${0.5 * a})`); g.addColorStop(1, 'rgba(255,170,90,0)');
+      fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, 18, 0, 7); fx.fill();
+      fx.fillStyle = `rgba(255,${190 + lt.hue / 2},120,${a})`; fx.fillRect(x - 4, y - 6, 8, 10);
+    }
     // céu refletido nos lagos: estrelas piscando e estrela cadente
     if (L < 0.4 && wx.cloud < 0.6) {
       const a0 = (1 - L) * (1 - wx.cloud), x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
@@ -505,6 +597,7 @@ export class Renderer {
       if (fl > 0) { fx.fillStyle = `rgba(215,225,255,${fl * 0.4})`; fx.fillRect(0, 0, VW, VH); }
     }
 
+    if (this.hideLabels) return;
     // balões e nomes por cima da escuridão
     fx.textAlign = 'center'; fx.textBaseline = 'middle';
     fx.font = `700 ${Math.round(12 + 4 * z)}px Inter,sans-serif`;
@@ -524,8 +617,15 @@ export class Renderer {
         fx.fillStyle = '#f2c14e'; fx.fillRect(gx - s0, gy - s0 * 0.2, s0 * 2, s0 * 0.4); fx.fillRect(gx - s0 * 0.2, gy - s0, s0 * 0.4, s0 * 2);
         continue;
       }
+      if (a.bubble === 'balde' && sim.tick <= a.bubbleUntil) {
+        // balde d'água jogado no fogo
+        const gx = p.x + 7 * sc, gy = p.y - 15 * sc, s0 = 3.5 * z;
+        fx.fillStyle = '#8a5a32'; fx.beginPath(); fx.moveTo(gx - s0, gy - s0); fx.lineTo(gx + s0, gy - s0); fx.lineTo(gx + s0 * 0.7, gy + s0); fx.lineTo(gx - s0 * 0.7, gy + s0); fx.fill();
+        fx.fillStyle = '#7cc4ff'; fx.fillRect(gx - s0, gy - s0 - 1.5 * z, s0 * 2, 1.5 * z);
+        continue;
+      }
       if (a.bubble && sim.tick <= a.bubbleUntil && !(a.bubble === 'z' && (ts | 0) % 3 === 0)) {
-        fx.fillStyle = a.bubble === '♥' ? '#ff7aa8' : a.bubble === '¨' ? '#7cc4ff' : a.bubble === '♪' ? '#c9a8ff' : '#f2c14e';
+        fx.fillStyle = a.bubble === '♥' ? '#ff7aa8' : a.bubble === '¨' ? '#7cc4ff' : a.bubble === '♪' ? '#c9a8ff' : a.bubble === '◆' ? '#c8a8ff' : a.bubble === 'hmpf' ? '#e07a5a' : '#f2c14e';
         fx.fillText(a.bubble, p.x + 7 * sc, p.y - 15 * sc - Math.sin(ts * 2) * 2);
       }
     }
@@ -539,6 +639,11 @@ export class Renderer {
       fx.fillStyle = a === selected ? '#1b1404' : css(a.col);
       fx.fillText(a.name, p.x, py);
     }
+    // nomes de quem acampou (fork) e do mercador
+    fx.font = '600 10px Inter,sans-serif';
+    const tag = (text: string, x: number, y: number, col: string) => { const w = fx.measureText(text).width + 10; fx.fillStyle = 'rgba(4,7,9,.65)'; fx.beginPath(); fx.roundRect(x - w / 2, y - 7, w, 14, 7); fx.fill(); fx.fillStyle = col; fx.fillText(text, x, y); };
+    if (z >= 0.65) for (const k of sim.forks) if (inV(k.x, k.y, 3)) tag(`⑂ ${k.login}`, sx(k.x + 0.5), sy(k.y) - ch * 2.8, '#9fd8ff');
+    if (mc && inV(mc.x, mc.y, 3)) tag(`mercador ${sim.merchant}`, sx(mc.x), sy(mc.y) - 14 * sc - 10, '#f2c14e');
     const sp = selected && this.screen.get(selected);
     if (sp) { fx.strokeStyle = '#f2c14e'; fx.lineWidth = 1.5; fx.beginPath(); fx.ellipse(sp.x, sp.y - 2 * z, 7 * sc, 2.4 * sc, 0, 0, 7); fx.stroke(); }
   }

@@ -9,8 +9,11 @@ import { Ambience } from './audio/ambience';
 import { lightningAt } from './sim/weather';
 import { PROFS } from './sim/constants';
 import { NEEDS, STARS_PER_COLUMN } from './sim/village';
+import { moonPhase, nightTune } from './sim/extras';
+import type { RepoData } from './sim/types';
+import { Timelapse } from './ui/timelapse';
 
-const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco' };
+const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
@@ -89,7 +92,18 @@ function renderCard(): void {
   const bioEl = document.createElement('p'), link = document.createElement('a');
   bioEl.className = 'bio'; bioEl.textContent = bio(a);
   link.className = 'gh'; link.href = `https://github.com/${encodeURIComponent(a.name)}`; link.target = '_blank'; link.rel = 'noopener'; link.textContent = `github.com/${a.name}`;
-  box.append(spriteCanvas(a), h4, s1, s2, bioEl, link);
+  const rel = document.createElement('p');
+  rel.className = 'bio rel'; rel.textContent = relations(a);
+  // link para seguir este morador e cartão SVG animado para o README
+  const page = `${location.origin}${import.meta.env.BASE_URL}`;
+  const share = document.createElement('div'); share.className = 'share';
+  const mk = (label: string, text: string) => {
+    const b = document.createElement('button'); b.textContent = label;
+    b.addEventListener('click', () => { void navigator.clipboard?.writeText(text).then(() => { b.textContent = 'copiado ✓'; setTimeout(() => { b.textContent = label; }, 1600); }); });
+    return b;
+  };
+  share.append(mk('Copiar link', `${page}?u=${encodeURIComponent(a.name)}`), mk('Cartão p/ README', `[![${a.name} em Stargazzing](${page}cards/${encodeURIComponent(a.name.toLowerCase())}.svg)](${page}?u=${encodeURIComponent(a.name)})`));
+  box.append(spriteCanvas(a), h4, s1, s2, bioEl, rel, share, link);
   for (const [k, v] of [['Energia', a.traits.energy], ['Sociável', a.traits.social], ['Jardineiro', a.traits.gardener], ['Explorador', a.traits.wander]] as const) {
     const row = document.createElement('div'), l = document.createElement('span'), m = document.createElement('span'), i = document.createElement('i');
     row.className = 'trait'; m.className = 'm'; l.textContent = k; i.style.width = `${(v * 100).toFixed(0)}%`;
@@ -97,6 +111,16 @@ function renderCard(): void {
   }
   c.append(box);
   updateCard();
+}
+function relations(a: Agent): string {
+  const names = (l: Agent[]) => l.slice(0, 3).map(b => b.name).join(', ') + (l.length > 3 ? ` e mais ${l.length - 3}` : '');
+  const bits = [
+    a.partner ? `mora ao lado de ${a.partner.name}` : '',
+    a.friends.length ? `amigos: ${names(a.friends)}` : '',
+    a.rivals.length ? `não se bica com ${names(a.rivals)}` : '',
+    a.crystals ? `${a.crystals} cristal${a.crystals > 1 ? 'is' : ''} da caverna hoje` : '',
+  ].filter(Boolean);
+  return bits.length ? `${bits.join(' · ')}.` : 'Ainda sem amizades marcantes.';
 }
 function updateCard(): void {
   if (!selected || !cardSub) return;
@@ -136,6 +160,7 @@ function start(): void {
   sim = new Simulation(world, genesisFor(now, tz()));
   if (renderer) renderer.setSim(sim);
   else renderer = new Renderer($<HTMLCanvasElement>('bg'), $<HTMLCanvasElement>('fg'), $<HTMLCanvasElement>('mini'), sim);
+  amb.tune = nightTune(sim.genesis);
   const p = sim.terrain.plazas[0]!;
   renderer.cam = { x: p.x, y: p.y + 6 };
   renderer.clampCam();
@@ -151,6 +176,10 @@ function start(): void {
     renderer.warm = true; renderer.drawScene((sim.tick * TICK_MS) / 1000);
     el.hidden = true; ready = true;
     renderStatus(); renderPlayers(true);
+    // ?u=login: abre já seguindo esse morador
+    const want = new URLSearchParams(location.search).get('u')?.toLowerCase();
+    const who = want ? sim.agents.find(a => a.name.toLowerCase() === want) : undefined;
+    if (who) { select(who); if (who.present) { renderer.cam = { x: who.x, y: who.y }; renderer.setZoom(5); renderer.clampCam(); } openDrawer('playersDrawer'); }
     $('msg').textContent = `Mundo refeito em ${((performance.now() - t0) / 1000).toFixed(1)} s.`;
   };
   chunk();
@@ -176,8 +205,6 @@ function bio(a: Agent): string {
 
 const MOON = ['lua nova', 'lua crescente', 'quarto crescente', 'gibosa crescente', 'lua cheia', 'gibosa minguante', 'quarto minguante', 'lua minguante'];
 const SEASON = ['verão', 'outono', 'inverno', 'primavera'];
-/** Fase da lua de verdade: ciclo sinódico a partir de uma lua nova conhecida. */
-function moonPhase(ms: number): number { return ((((ms - Date.UTC(2000, 0, 6, 18, 14)) / 86_400_000) / 29.530588) % 1 + 1) % 1; }
 function drawMoon(ph: number): void {
   const c = $<HTMLCanvasElement>('moon'), g = c.getContext('2d')!, r = 13;
   g.clearRect(0, 0, 32, 32);
@@ -203,6 +230,21 @@ function renderDiary(): void {
     const done = n >= need;
     st.textContent = done ? 'pronto' : `faltam ${need - n} star${need - n > 1 ? 's' : ''}`;
     li.className = done ? 'done' : '';
+    li.append(b, st); works.append(li);
+  }
+  for (const [label, need] of [['Templo escondido', 25], ['Cristal do templo', 50]] as const) {
+    const li = document.createElement('li'), b = document.createElement('b'), st = document.createElement('span');
+    b.textContent = label; st.textContent = n >= need ? 'pronto' : `faltam ${need - n} stars`;
+    li.className = n >= need ? 'done' : ''; li.append(b, st); works.append(li);
+  }
+  const reqs = sim.requests.filter(q => q.state === 'open');
+  for (const q of reqs.slice(0, 6)) {
+    const li = document.createElement('li'), b = document.createElement('b'), st = document.createElement('span');
+    b.textContent = `Pedido #${q.n}`; st.textContent = q.title; li.append(b, st); works.append(li);
+  }
+  {
+    const li = document.createElement('li'), b = document.createElement('b'), st = document.createElement('span');
+    b.textContent = 'Ecossistema'; st.textContent = `${sim.eco.rabbits} coelhos · ${sim.eco.foxes} raposas`;
     li.append(b, st); works.append(li);
   }
   const total = sim.terrain.columns.length, intact = sim.terrain.columns.filter(c => c.kind === 0).length;
@@ -252,6 +294,30 @@ function loop(now: number): void {
   requestAnimationFrame(loop);
 }
 
+const timelapse = new Timelapse($('timelapse'));
+
+/** Modo foto: redesenha sem nomes nem balões, junta chão e atores e baixa um PNG com legenda. */
+function photo(): void {
+  const tf = (Date.now() - sim.genesis) / TICK_MS, ts = (tf * TICK_MS) / 1000;
+  renderer.hideLabels = true;
+  renderer.drawScene(ts); renderer.drawActors(tf, null, null);
+  const bg = $<HTMLCanvasElement>('bg'), fg = $<HTMLCanvasElement>('fg'), out = document.createElement('canvas');
+  out.width = bg.width; out.height = bg.height;
+  const g = out.getContext('2d')!;
+  g.drawImage(bg, 0, 0); g.drawImage(fg, 0, 0);
+  renderer.hideLabels = false;
+  const k = out.width / innerWidth, text = `Stargazzing · ${fmt(sim.genesis + sim.tick * TICK_MS)} · ${sim.weather().kind} · ${sim.stars} moradores`;
+  g.font = `600 ${Math.round(14 * k)}px Inter,sans-serif`;
+  const w = g.measureText(text).width + 24 * k;
+  g.fillStyle = 'rgba(4,7,9,.7)'; g.beginPath(); g.roundRect(16 * k, out.height - 44 * k, w, 30 * k, 15 * k); g.fill();
+  g.fillStyle = '#f2c14e'; g.textBaseline = 'middle'; g.fillText(text, 28 * k, out.height - 29 * k);
+  const a = document.createElement('a');
+  a.download = `stargazzing-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.png`;
+  a.href = out.toDataURL('image/png');
+  a.click();
+  $('msg').textContent = 'Foto salva.';
+}
+
 // ---------- eventos ----------
 function bind(): void {
   $('openHow').addEventListener('click', () => openDrawer('howDrawer'));
@@ -259,9 +325,15 @@ function bind(): void {
   $('openDiary').addEventListener('click', () => { diaryKey = ''; openDrawer('diaryDrawer'); renderDiary(); });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => openDrawer('')));
   addEventListener('resize', () => renderer.resize());
+  const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+  let kq: string[] = [];
   addEventListener('keydown', e => {
-    if (e.key === 'Escape') openDrawer('');
+    if (e.key === 'Escape') { openDrawer(''); timelapse.stop(); }
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    const ts = Date.now() / 1000 - sim.genesis / 1000;
+    kq = [...kq, e.key.length === 1 ? e.key.toLowerCase() : e.key].slice(-KONAMI.length);
+    if (kq.join() === KONAMI.join()) { renderer.starRain(ts); kq = []; $('msg').textContent = 'Chuva de estrelas! ★'; }
+    if (e.key === 'l' || e.key === 'L') renderer.releaseLantern(ts);
     const k = ({ ArrowLeft: [-4, 0], ArrowRight: [4, 0], ArrowUp: [0, -3], ArrowDown: [0, 3] } as Record<string, [number, number]>)[e.key];
     if (k) { follow = false; renderer.pan(k[0], k[1]); }
   });
@@ -279,6 +351,8 @@ function bind(): void {
   let wanted = false;
   try { wanted = localStorage.getItem('som') === '1'; } catch { /* modo privado */ }
   if (wanted) addEventListener('pointerdown', e => { if (e.target !== sb && !amb.on) void setSound(true); }, { once: true });
+  $('photo').addEventListener('click', photo);
+  $('openTimelapse').addEventListener('click', () => timelapse.play(sim, renderer));
   $('zin').addEventListener('click', () => renderer.setZoom(renderer.zi + 1));
   $('zout').addEventListener('click', () => renderer.setZoom(renderer.zi - 1));
   const fg = $<HTMLCanvasElement>('fg');
@@ -314,6 +388,17 @@ function bind(): void {
   });
 }
 
+/** Confere o formato do repo.json antes de usar: só passa o que tem o tipo certo. */
+function cleanRepo(d: unknown): RepoData {
+  const o = (d ?? {}) as Record<string, unknown>, out: RepoData = {};
+  const str = (v: unknown, max = 80) => (typeof v === 'string' ? v.slice(0, max) : '');
+  if (Array.isArray(o.forks)) out.forks = o.forks.map(f => ({ login: str(f?.login, 39), at: str(f?.at, 30) })).filter(f => f.login && f.at);
+  if (Array.isArray(o.followers)) out.followers = o.followers.map(f => str(f, 39)).filter(Boolean);
+  if (Array.isArray(o.requests)) out.requests = o.requests.filter(q => Number.isInteger(q?.n)).map(q => ({ n: q.n as number, title: str(q.title), state: q.state === 'closed' ? 'closed' as const : 'open' as const, closedAt: str(q.closedAt, 30) || undefined }));
+  if (o.commits && typeof o.commits === 'object') { out.commits = {}; for (const [k, v] of Object.entries(o.commits as Record<string, unknown>)) if (/^\d{4}-\d\d-\d\d$/.test(k) && Number.isInteger(v)) out.commits[k] = v as number; }
+  return out;
+}
+
 async function boot(): Promise<void> {
   const res = await fetch(`${import.meta.env.BASE_URL}world.json`, { cache: 'no-cache' });
   world = (await res.json()) as WorldFile;
@@ -321,6 +406,10 @@ async function boot(): Promise<void> {
     const pr = await fetch(`${import.meta.env.BASE_URL}profiles.json`, { cache: 'no-cache' });
     if (pr.ok) profiles = (await pr.json()) as Record<string, Profile>;
   } catch { /* perfis são opcionais */ }
+  try {
+    const rr = await fetch(`${import.meta.env.BASE_URL}repo.json`, { cache: 'no-cache' });
+    if (rr.ok) world.extra = cleanRepo(await rr.json());
+  } catch { /* dados do repo são opcionais */ }
   const n = world.stargazers.length;
   $('dataNote').textContent = `${n} stargazer${n === 1 ? '' : 's'} reais de ${world.repo}` +
     (world.generatedAt ? `, lidos em ${new Date(world.generatedAt).toLocaleString('pt-BR')}.` : '.') +

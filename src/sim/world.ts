@@ -15,6 +15,8 @@ export class Terrain {
   readonly ruinCh: string[] = new Array<string>(N).fill('');
   plazas: Plaza[] = [];
   wild: WildTree[] = [];
+  /** células do riacho, da nascente até o lago */
+  stream: number[] = [];
   /** marcos fora do centro */
   landmarks: Landmark[] = [];
   /** colunas da ágora central */
@@ -69,6 +71,30 @@ export class Terrain {
       this.block[y * COLS + x] = 1;
     }
     this.plazas.push({ x: cx, y: cy, main: true });
+  }
+
+  /** Riacho: nasce na borda de cima, longe do centro, e desce serpenteando até achar um lago. */
+  private carveStream(r: () => number): void {
+    const { T, noise } = this;
+    // testa algumas nascentes e fica com o riacho mais comprido
+    const trace = (x0: number) => {
+      const cells: number[] = [];
+      let x = x0;
+      for (let y = 0, k = 0; k < ROWS * 3 && y < ROWS - 1; k++, y++) {
+        const i = y * COLS + x;
+        if (T[i]! <= Tile.Shallow && k > 4) break;
+        cells.push(i);
+        const drift = noise(y * 0.09, x * 0.01, 4.4);
+        if (Math.abs(drift) > 0.18 && k % 2) { x += drift > 0 ? 1 : -1; x = Math.max(2, Math.min(COLS - 3, x)); const j = y * COLS + x; if (T[j]! > Tile.Shallow) cells.push(j); }
+      }
+      return cells;
+    };
+    let best: number[] = [];
+    for (let k = 0; k < 8; k++) {
+      const x0 = Math.floor(COLS * (r() < 0.5 ? 0.1 + r() * 0.25 : 0.65 + r() * 0.25)), c = trace(x0);
+      if (c.length > best.length && c.length < ROWS * 1.4) best = c;
+    }
+    for (const i of best) if (T[i]! > Tile.Shallow) { T[i] = Tile.Stream; this.stream.push(i); }
   }
 
   /** Tira árvores nativas de um retângulo (para abrir clareira em volta de uma construção). */
@@ -126,6 +152,24 @@ export class Terrain {
         if ((this.T[i] === Tile.Grass || this.T[i] === Tile.Forest) && (this.T[i + 1] === Tile.Grass || this.T[i + 1] === Tile.Forest) && !this.block[i] && !this.block[i + 1]) add('barraca', x, y, 2, 2);
       }
     }
+    // caverna: boca na pedra, com grama na frente, longe da ágora
+    let cave: [number, number] | null = null, cd = -1;
+    for (let k = 0; k < 6000; k++) {
+      const x = 4 + Math.floor(r() * (COLS - 8)), y = 6 + Math.floor(r() * (ROWS - 10)), i = y * COLS + x;
+      if (this.T[i] !== Tile.Grass || this.T[i - COLS] !== Tile.Rock || this.T[i - 2 * COLS] !== Tile.Rock || this.block[i]) continue;
+      const d = Math.abs(x - this.agora.x) + Math.abs(y - this.agora.y);
+      if (d > cd) { cd = d; cave = [x, y]; }
+      if (cd > 120) break;
+    }
+    if (cave) { this.landmarks.push({ kind: 'caverna', x: cave[0], y: cave[1] - 1, w: 1, v: 0 }); this.clearTrees(cave[0] - 2, cave[1] - 1, cave[0] + 2, cave[1] + 2); }
+    // ruína secreta: escondida num canto do mapa, revelada com 25 stars
+    const tp = this.findSpot(r, 0.82, 0.96, 0.08, 0.35, 7, 4) ?? this.findSpot(r, 0.04, 0.18, 0.08, 0.35, 7, 4);
+    if (tp) { this.landmarks.push({ kind: 'templo', x: tp[0], y: tp[1], w: 7, v: 0 }); this.clearTrees(tp[0] - 2, tp[1] - 6, tp[0] + 9, tp[1] + 2); for (let k = 0; k < 7; k++) this.block[tp[1] * COLS + tp[0] + k] = 1; }
+    // quadro de pedidos ao lado da escadaria da ágora
+    const bx = this.agora.x + 6, by = this.agora.y + Math.ceil(this.agora.ry) + 2;
+    this.landmarks.push({ kind: 'quadro', x: bx, y: by, w: 2, v: 0 });
+    this.clearTrees(bx - 1, by - 3, bx + 3, by + 1);
+    this.block[by * COLS + bx] = this.block[by * COLS + bx + 1] = 1;
     // ponte: travessia horizontal de 3 a 7 células de água entre duas margens, a mais perto do centro
     let best: [number, number, number] | null = null, bd = Infinity;
     for (let y = 6; y < ROWS - 6; y++) for (let x = 4; x < COLS - 12; x++) {
@@ -156,6 +200,7 @@ export class Terrain {
       H[i] = h; M[i] = m;
       T[i] = h < -0.44 ? Tile.Deep : h < -0.33 ? Tile.Shallow : h < -0.26 ? Tile.Sand : h > 0.5 ? Tile.Rock : m > 0.18 ? Tile.Forest : Tile.Grass;
     }
+    this.carveStream(r);
     this.buildAgora(r);
     // ruínas menores espalhadas pela mata
     RUINS.forEach((tpl, ri) => {
