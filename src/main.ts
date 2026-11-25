@@ -180,7 +180,16 @@ function bind(): void {
   $('zin').addEventListener('click', () => renderer.setZoom(renderer.zi + 1));
   $('zout').addEventListener('click', () => renderer.setZoom(renderer.zi - 1));
   const fg = $<HTMLCanvasElement>('fg');
-  fg.addEventListener('wheel', e => { e.preventDefault(); renderer.setZoom(renderer.zi + (e.deltaY < 0 ? 1 : -1), e.offsetX, e.offsetY); }, { passive: false });
+  // trackpad manda dezenas de eventos por gesto: acumula e troca no máximo um nível a cada 140 ms
+  let wheelAcc = 0, lastZoom = 0;
+  fg.addEventListener('wheel', e => {
+    e.preventDefault();
+    wheelAcc += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    const now = performance.now();
+    if (Math.abs(wheelAcc) < 60 || now - lastZoom < 140) return;
+    renderer.setZoom(renderer.zi + (wheelAcc < 0 ? 1 : -1), e.offsetX, e.offsetY);
+    wheelAcc = 0; lastZoom = now;
+  }, { passive: false });
   let drag: { x: number; y: number; cx: number; cy: number; moved: boolean } | null = null;
   fg.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, cx: renderer.cam.x, cy: renderer.cam.y, moved: false }; fg.setPointerCapture(e.pointerId); });
   fg.addEventListener('pointermove', e => {

@@ -23,11 +23,13 @@ const SHALLOW_T = ['#1b4d6a', '#236183', '#2f789c'];
 const BG: Record<number, string> = { 0: '#06182a', 1: '#0a2536', 2: '#2a241a', 3: '#122a1a', 4: '#0d1f14', 5: '#141518', 6: '#18181d', 7: '#101013' };
 
 export class GroundCache {
+  /** blocos por zoom: os últimos 3 zooms ficam guardados, então ir e voltar não refaz nada */
+  private byZoom = new Map<string, Map<number, { canvas: HTMLCanvasElement; sig: number }>>();
   private chunks = new Map<number, { canvas: HTMLCanvasElement; sig: number }>();
   private key = '';
   constructor(private sim: Simulation) {}
 
-  setSim(sim: Simulation): void { this.sim = sim; this.chunks.clear(); }
+  setSim(sim: Simulation): void { this.sim = sim; this.byZoom.clear(); this.chunks.clear(); this.key = ''; }
 
   /** Assinatura do que é visível e muda: trilhas e flores. */
   private sig(cx: number, cy: number): number {
@@ -44,7 +46,14 @@ export class GroundCache {
   /** Devolve o bloco pronto, ou null se ainda não deu tempo de desenhar (o orçamento evita travadas). */
   get(cx: number, cy: number, cw: number, ch: number, budget: { n: number }): HTMLCanvasElement | null {
     const key = `${cw}|${ch}`;
-    if (key !== this.key) { this.key = key; this.chunks.clear(); }
+    if (key !== this.key) {
+      this.key = key;
+      const m = this.byZoom.get(key) ?? new Map();
+      this.byZoom.delete(key);
+      this.byZoom.set(key, m);
+      while (this.byZoom.size > 3) this.byZoom.delete(this.byZoom.keys().next().value!);
+      this.chunks = m;
+    }
     const id = cy * 1000 + cx, have = this.chunks.get(id);
     if (have && (budget.n <= 0 || have.sig === this.sig(cx, cy))) return have.canvas;
     if (budget.n <= 0) return null;

@@ -92,9 +92,7 @@ export class Renderer {
     this.zoom = ZOOMS[nz]!;
     this.cam.x = wx - px / (CW * this.zoom) + this.VW / (2 * CW * this.zoom);
     this.cam.y = wy - py / (CH * this.zoom) + this.VH / (2 * CH * this.zoom);
-    clearTreeCache();
-    clearPropCache();
-    this.warm = true;
+    // sprites e blocos de chão são guardados por zoom; o que faltar entra aos poucos
     this.clampCam();
   }
 
@@ -128,14 +126,21 @@ export class Renderer {
     bx.imageSmoothingEnabled = false;
     const c0 = Math.max(0, Math.floor(ox / CHUNK)), c1 = Math.min(Math.ceil(COLS / CHUNK) - 1, Math.floor((ox + vw) / CHUNK));
     const r0 = Math.max(0, Math.floor(oy / CHUNK)), r1 = Math.min(Math.ceil(ROWS / CHUNK) - 1, Math.floor((oy + vh) / CHUNK));
-    const budget = { n: this.warm ? 99 : 12 };
+    const budget = { n: this.warm ? 99 : 2 };
     this.warm = false;
     let pending = false;
     for (let cy = r0; cy <= r1; cy++) for (let cx = c0; cx <= c1; cx++) {
       const img = this.groundCache.get(cx, cy, cw, ch, budget);
-      if (img) bx.drawImage(img, Math.round((cx * CHUNK - ox) * cw), Math.round((cy * CHUNK - oy) * ch));
-      else pending = true;
+      const dxp = Math.round((cx * CHUNK - ox) * cw), dyp = Math.round((cy * CHUNK - oy) * ch);
+      if (img) { bx.drawImage(img, dxp, dyp); continue; }
+      // ainda não desenhado: mostra as cores do minimapa ampliadas até o bloco ficar pronto
+      pending = true;
+      if (this.miniVersion !== sim.groundVersion) this.buildMini();
+      const w = Math.min(CHUNK, COLS - cx * CHUNK), hh = Math.min(CHUNK, ROWS - cy * CHUNK);
+      bx.drawImage(this.mini, cx * CHUNK, cy * CHUNK, w, hh, dxp, dyp, Math.ceil(w * cw), Math.ceil(hh * ch));
     }
+    // vento e brilho na água: milhares de caracteres, então só com o chão pronto e zoom em que dá para ver
+    if (pending || z < 0.8) { this.dirty = pending; return; }
     // vento: faixas de rajada passam pela grama; brilho na água
     const x0 = Math.max(0, Math.floor(ox)), x1 = Math.min(COLS, Math.ceil(ox + vw) + 1), y0 = Math.max(0, Math.floor(oy)), y1 = Math.min(ROWS, Math.ceil(oy + vh) + 1);
     bx.font = `700 ${Math.max(3, Math.round((ch / 4) * 1.45))}px "JetBrains Mono",monospace`;
