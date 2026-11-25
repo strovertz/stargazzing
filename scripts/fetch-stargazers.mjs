@@ -40,6 +40,13 @@ let stargazers;
 try {
   stargazers = await fetchAll(true);
 } catch (err) {
+  // diagnóstico sem expor o token: tipo pelo prefixo e o que ele consegue ver
+  if (token) {
+    const kind = token.startsWith('ghp_') ? 'clássico' : token.startsWith('github_pat_') ? 'fine-grained' : token.startsWith('ghs_') ? 'GITHUB_TOKEN' : 'desconhecido';
+    const auth = { ...headers, Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` };
+    const st = async u => (await fetch(`https://api.github.com/${u}`, { headers: auth })).status;
+    console.log(`token ${kind} (${token.length} caracteres): /user ${await st('user')}, /repos/${repo} ${await st(`repos/${repo}`)}, stargazers ${await st(`repos/${repo}/stargazers`)}`);
+  }
   // Sem API (limite, rede): mantém o arquivo atual para o deploy não quebrar.
   try {
     await readFile(out);
