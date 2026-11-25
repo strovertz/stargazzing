@@ -17,7 +17,7 @@ const headers = {
   'X-GitHub-Api-Version': '2022-11-28',
   'User-Agent': 'stargazzing-world-builder',
 };
-const token = process.env.STARS_TOKEN || process.env.GITHUB_TOKEN;
+const token = (process.env.STARS_TOKEN || process.env.GITHUB_TOKEN || "").trim();
 
 async function fetchAll(auth) {
   const h = auth && token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
