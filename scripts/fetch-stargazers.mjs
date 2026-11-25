@@ -1,6 +1,8 @@
 // Busca quem deu star no repositório e grava public/world.json.
 // Uso: node scripts/fetch-stargazers.mjs [owner/repo]
-// GITHUB_TOKEN é opcional (sobe o limite da API); sem ele funciona para repositório público.
+// Token opcional: STARS_TOKEN (PAT só de leitura pública) ou GITHUB_TOKEN. O GITHUB_TOKEN das
+// Actions não tem acesso a stargazers (403); nesse caso tenta de novo sem token, o que funciona
+// para repositório público dentro do limite de 60 chamadas por hora.
 import { readFile, writeFile } from 'node:fs/promises';
 
 const SEED = 'strovertz/stargazzing'; // fixa: muda o mapa inteiro se mudar
@@ -15,13 +17,14 @@ const headers = {
   'X-GitHub-Api-Version': '2022-11-28',
   'User-Agent': 'stargazzing-world-builder',
 };
-if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+const token = process.env.STARS_TOKEN || process.env.GITHUB_TOKEN;
 
-async function fetchAll() {
+async function fetchAll(auth) {
+  const h = auth && token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
   const all = [];
   for (let page = 1; page <= 400; page++) {
-    const res = await fetch(`https://api.github.com/repos/${repo}/stargazers?per_page=100&page=${page}`, { headers });
-    if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
+    const res = await fetch(`https://api.github.com/repos/${repo}/stargazers?per_page=100&page=${page}`, { headers: h });
+    if (!res.ok) throw Object.assign(new Error(`GitHub API ${res.status}: ${await res.text()}`), { status: res.status });
     const batch = await res.json();
     for (const s of batch) {
       const login = s?.user?.login, at = s?.starred_at;
@@ -35,7 +38,13 @@ async function fetchAll() {
 
 let stargazers;
 try {
-  stargazers = await fetchAll();
+  try {
+    stargazers = await fetchAll(true);
+  } catch (err) {
+    if (!token || (err.status !== 401 && err.status !== 403)) throw err;
+    console.log(`token recusado (${err.status}); tentando sem token`);
+    stargazers = await fetchAll(false);
+  }
 } catch (err) {
   // Sem API (limite, rede): mantém o arquivo atual para o deploy não quebrar.
   try {
