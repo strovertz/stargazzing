@@ -47,7 +47,7 @@ export function commitBias(extra: RepoData | undefined, ms: number): { sun: numb
   if (!c) return { sun: 0, fog: 0 };
   let recent = 0, week = 0;
   for (let k = 0; k < 7; k++) { const n = c[dayKey(ms - k * DAY_MS)] ?? 0; week += n; if (k < 3) recent += n; }
-  return { sun: Math.min(0.16, recent * 0.02), fog: week === 0 ? 0.35 : 0 };
+  return { sun: Math.min(0.06, recent * 0.01), fog: week === 0 ? 0.35 : 0 };
 }
 
 /** Mercador do dia: um seguidor do dono do repositório, escolhido pela data. */
