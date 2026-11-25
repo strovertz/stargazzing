@@ -22,7 +22,7 @@
     <div class="seg glass" role="group" aria-label="Zoom"><button id="zout" aria-label="Diminuir zoom">−</button><button id="zin" aria-label="Aumentar zoom">+</button></div>
   </div>
   <div class="mini glass"><canvas id="mini" width="320" height="96" aria-label="Minimapa: clique para ir até o ponto"></canvas></div>
-  <div class="hint glass" id="hint">Arraste para andar pelo mapa · role para zoom · clique num morador</div>
+  <div class="hint glass" id="hint">Arraste para andar pelo mapa · role para zoom · clique num morador ou numa casa</div>
   <div class="fabs">
     <button class="fab glass" id="openHow">Como funciona</button>
     <button class="fab glass" id="openTimelapse">Timelapse</button>
@@ -48,7 +48,9 @@
       <li><b>Calendário.</b> Feira na ágora no sábado e no domingo, corrida de vaga-lumes na sexta às 20h, estações do ano pela data real (hemisfério sul) e a lua na fase de verdade.</li>
       <li><b>Marcos.</b> Moinho a oeste com pás que giram com o vento, torre de vigia a leste, dois círculos de pedras (que brilham à noite), barracas nos acampamentos e uma ponte de madeira. Os moradores vão visitá-los; os exploradores, mais ainda.</li>
       <li><b>Bichos.</b> Coelhos de dia, raposas ao entardecer, e um gato que escolhe um morador por dia para seguir.</li>
-      <li><b>Amizades, rivais e casais.</b> A afinidade entre dois logins decide quem é amigo (sempre para para conversar e se visita), quem não se bica (desvia e resmunga) e quem forma casal e vai morar ao lado.</li>
+      <li><b>Pets e música.</b> Um terço dos moradores tem cachorro, gato, galinha, pato ou sapo. Cada músico toca alaúde, flauta, tambor, harpa ou gaita, cada fogueira tem a sua melodia e dois músicos juntos fazem dueto.</li>
+      <li><b>Amizades, rivais e casais.</b> Amigos jogam dama, pescam juntos, trocam presentes e apresentam outros amigos; rivais fazem as pazes no conselho. A afinidade entre dois logins decide quem é amigo (sempre para para conversar e se visita), quem não se bica (desvia e resmunga) e quem forma casal e vai morar ao lado.</li>
+      <li><b>Casas.</b> Cabana, casa de pedra, casa na árvore, palafita (na beira d'água) ou tenda. Com o tempo a casa ganha cerca, horta, varal e segundo andar. Clique numa casa para ver a planta por dentro, com o que o morador guardou no baú.</li>
       <li><b>Envelhecimento.</b> Com 7 dias de vila o cabelo fica grisalho, com 30 alguns ganham barba, com 60 o cabelo fica branco. Árvores antigas crescem mais.</li>
       <li><b>Conselho.</b> Quarta às 19h a vila se reúne na ágora e vota a ordem das duas próximas obras.</li>
       <li><b>Mineiros e caverna.</b> O minerador entra na caverna, some por um tempo e volta com cristais, que brilham na casa à noite.</li>
@@ -81,6 +83,7 @@
     <input id="search" placeholder="Buscar player" aria-label="Buscar player" class="search">
     <div class="list" id="list"></div>
   </aside>
+  <div class="timelapse glass house" id="houseView" hidden><h3></h3><canvas aria-label="Planta da casa"></canvas><p></p><button aria-label="Fechar planta">×</button></div>
   <div class="timelapse glass" id="timelapse" hidden><canvas aria-label="Timelapse da vila"></canvas><p></p><button aria-label="Fechar timelapse">×</button></div>
   <div class="loading" id="loading"><div><p id="loadTxt">Refazendo o dia desde 00:00 a partir da semente…</p><div class="bar"><i id="loadBar"></i></div></div></div>
 </div>

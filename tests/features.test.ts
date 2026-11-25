@@ -98,3 +98,17 @@ describe('interações', () => {
     for (const a of s.agents) for (const b of a.friends) expect(b.friends).toContain(a);
   });
 });
+
+describe('casas', () => {
+  it('palafita só na beira da água e tipos estáveis', () => {
+    const s = new Simulation(W, GENESIS), T = s.terrain.T;
+    for (const a of s.agents) {
+      expect(a.house).toBe(new Simulation(W, GENESIS).agents.find(b => b.name === a.name)!.house);
+      if (a.house !== 3) continue;
+      let wet = false;
+      for (let dy = -2; dy <= 3; dy++) for (let dx = -5; dx <= 3; dx++) if (T[(a.home.y + dy) * 320 + a.home.x + dx]! <= 1) wet = true;
+      expect(wet).toBe(true);
+    }
+    expect(new Set(s.agents.map(a => a.house)).size).toBeGreaterThan(2);
+  });
+});

@@ -41,5 +41,7 @@ export const HOUSE_DX = 2;
 export const INSTRUMENTS = ['alaúde', 'flauta', 'tambor', 'harpa', 'gaita'] as const;
 export const PETS = ['cachorro', 'gato', 'galinha', 'pato', 'sapo'] as const;
 export const PET_NAMES = ['Pipoca', 'Farofa', 'Paçoca', 'Biscoito', 'Tico', 'Nina', 'Bolota', 'Pitoco', 'Mel', 'Jujuba', 'Fubá', 'Cacau', 'Pingo', 'Luna', 'Toddy', 'Banzé'];
+/** Tipos de casa: o login escolhe, o terreno dá a palavra final (palafita só perto da água). */
+export const HOUSES = ['cabana', 'casa de pedra', 'casa na árvore', 'palafita', 'tenda'] as const;
 export const PROFS = ['lenhador', 'pescador', 'músico', 'jardineiro', 'explorador', 'minerador'] as const;
 export type Prof = (typeof PROFS)[number];

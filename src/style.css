@@ -77,3 +77,4 @@ input{flex:1;font-size:16px;background:rgba(0,0,0,.35);border:1px solid var(--li
 .timelapse canvas{width:100%;height:auto;image-rendering:pixelated;border-radius:8px;display:block}
 .timelapse p{margin:10px 40px 0 2px;font-size:14px;color:var(--ink)}
 .timelapse button{position:absolute;right:14px;bottom:10px;background:transparent;border:0;color:var(--ink);font-size:22px;cursor:pointer}
+.timelapse.house{width:min(94vw,620px)}.timelapse.house h3{margin:0 0 10px;font:700 16px "JetBrains Mono",monospace;color:var(--ink)}

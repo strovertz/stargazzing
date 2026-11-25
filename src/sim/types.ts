@@ -65,6 +65,8 @@ export interface Agent {
   crystals: number;
   /** marco que está visitando */
   sight?: string;
+  /** índice em HOUSES */
+  house: number;
   /** índice em INSTRUMENTS (só músicos tocam) */
   instrument: number;
   /** bicho de estimação: índice em PETS e nome, ou null */

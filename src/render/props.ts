@@ -8,11 +8,11 @@ const ROOF = ['#2a1610', '#3e2116', '#5a2f1d', '#764028'];
 const WOOD = ['#21170f', '#2f2216', '#45321f', '#5c442a'];
 
 /** Casa de 3 células de largura: telhado em camadas, paredes de tábua, porta, janela e chaminé. */
-export function houseSprite(hue: number, lit: boolean, cw: number, ch: number, dpr: number) {
-  const key = `${hue}|${lit}|${cw}|${ch}|${dpr}`;
+export function houseSprite(hue: number, lit: boolean, cw: number, ch: number, dpr: number, tall = false) {
+  const key = `${hue}|${lit}|${cw}|${ch}|${dpr}|${tall}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const sw = (cw / 3) * dpr, sh = (ch / 4) * dpr, cols = 9, roofRows = 6, wallRows = 5;
+  const sw = (cw / 3) * dpr, sh = (ch / 4) * dpr, cols = 9, roofRows = 6, wallRows = tall ? 9 : 5;
   const W = Math.ceil(cols * sw), H = Math.ceil((roofRows + wallRows + 2) * sh);
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
@@ -38,7 +38,9 @@ export function houseSprite(hue: number, lit: boolean, cw: number, ch: number, d
   }
   for (let j = 0; j < wallRows; j++) for (let i = 1; i < cols - 1; i++) {
     const y = roofRows + 2 + j, hh = h32(i, j, 57), lit = i < 3 ? 2 : i < 6 ? 1 : 0;
-    const door = i === 4 && j >= 2, win = (i === 2 || i === 6) && (j === 1 || j === 2);
+    // com segundo andar: uma faixa de tábuas no meio e mais um par de janelas em cima
+    const base = wallRows - 5, door = i === 4 && j >= base + 2, win = (i === 2 || i === 6) && (j === base + 1 || j === base + 2 || (tall && (j === 1 || j === 2)));
+    if (tall && j === base - 1) { put('=', '#4a2e18', i, y, '#2a1a0e'); continue; }
     if (door) put(j === 2 ? 'n' : '|', '#120c08', i, y, '#1a120c');
     else if (win) put('#', lit ? '#ffd27a' : '#2a3440', i, y, lit ? '#a8651f' : '#121820');
     else put(['|', '#', '|', ':'][hh % 4]!, WOOD[Math.min(3, lit + (hh % 2))]!, i, y, WOOD[Math.max(0, lit - 1)]);
@@ -231,4 +233,26 @@ export function cartSprite(cw: number, ch: number, dpr: number) {
   const rows = ['  yyyyy ', ' yrrrrry', 'wwwwwwww', ' O    O '];
   const pal: Pal = { ...STONE, y: ['#f2c14e', '#8a6420'], r: ['#c43c3c', '#6a1a14'], w: ['#8a5a32', '#4a2e18'], O: ['#3a2818'] };
   return artSprite('carroça', rows, pal, (c) => (c === 'y' ? '~' : c === 'r' ? 'o' : c === 'w' ? '=' : 'O'), cw, ch, dpr);
+}
+
+/** Tipos de casa além da cabana: pedra, casa na árvore, palafita e tenda. Mesma largura (3 células). */
+const HOUSE_ROWS: Record<number, string[]> = {
+  1: ['      cc ', '   RRRcc ', '  RRRRRR ', ' RRRRRRRR', 'RRRRRRRRR', ' SSSSSSS ', ' SwSSSwS ', ' SSSSSSS ', ' SSSdSSS ', ' SSSdSSS '],
+  2: ['  lllll  ', ' lllllll ', 'lllRRRlll', 'llRRRRRll', ' lpwppwl ', ' pppdpp  ', ' xxxxxxx ', '   t   h ', '   t   h ', '   t   h ', '  ttt  h '],
+  3: ['   RRR   ', '  RRRRR  ', ' RRRRRRR ', 'RRRRRRRRR', ' ppwppwp ', ' pppdppp ', 'xxxxxxxxx', ' x  x  x ', ' x  x  x '],
+  4: ['    ^    ', '   fFf   ', '  fFfFf  ', ' fFfFfFf ', 'fFfFfFfFf', 'fFfFdFfFf', 'fFfFdFfFf'],
+};
+const HOUSE_TALL: Record<number, string[]> = {
+  1: ['      cc ', '   RRRcc ', '  RRRRRR ', ' RRRRRRRR', 'RRRRRRRRR', ' SwSSSwS ', ' SSSSSSS ', ' ======= ', ' SwSSSwS ', ' SSSSSSS ', ' SSSdSSS ', ' SSSdSSS '],
+};
+export function houseVariant(type: number, hue: number, lit: boolean, tall: boolean, cw: number, ch: number, dpr: number) {
+  if (type === 0 || !HOUSE_ROWS[type]) return houseSprite(hue, lit, cw, ch, dpr, tall);
+  const rows = (tall && HOUSE_TALL[type]) || HOUSE_ROWS[type]!;
+  const pal: Pal = {
+    R: [`hsl(${hue} 45% 55%)`, `hsl(${hue} 45% 28%)`], S: ['#9a958a', '#55524a'], c: ['#5a5a60', '#2a2a2e'],
+    w: lit ? ['#ffd27a', '#a8651f'] : ['#2a3440', '#121820'], d: ['#120c08', '#1a120c'], p: ['#9a6a3a', '#5a3a1e'],
+    x: ['#6a4426', '#3a2414'], t: ['#7a5530', '#4a3018'], h: ['#b08a5a'], l: ['#4f8a40', '#2a5226'],
+    f: [`hsl(${hue} 50% 70%)`, `hsl(${hue} 45% 40%)`], F: [`hsl(${hue} 50% 58%)`, `hsl(${hue} 45% 30%)`], '^': ['#6a4426'], '=': ['#4a2e18', '#2a1a0e'],
+  };
+  return artSprite(`casa|${type}|${hue}|${lit}|${tall}`, rows, pal, (c, i, j) => (c === 'R' ? (j % 2 ? '=' : '^') : c === 'S' ? ((i + j) % 2 ? '#' : '=') : c === 'w' ? '#' : c === 'd' ? (j % 2 ? 'n' : '|') : c === 'p' ? '|' : c === 'x' ? (j > 6 ? '|' : '=') : c === 't' ? '|' : c === 'h' ? 'H' : c === 'l' ? ['"', '&', '%'][(i + j) % 3]! : c === 'f' || c === 'F' ? (i < 4 ? '/' : i > 4 ? '\\' : '|') : c === 'c' ? '|' : c), cw, ch, dpr);
 }

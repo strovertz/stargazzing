@@ -12,6 +12,7 @@ import { NEEDS, STARS_PER_COLUMN } from './sim/village';
 import { moonPhase, nightTune } from './sim/extras';
 import type { RepoData } from './sim/types';
 import { Timelapse } from './ui/timelapse';
+import { HouseView } from './ui/house';
 
 const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -300,6 +301,7 @@ function loop(now: number): void {
 }
 
 const timelapse = new Timelapse($('timelapse'));
+const houseView = new HouseView($('houseView'));
 
 /** Modo foto: redesenha sem nomes nem balões, junta chão e atores e baixa um PNG com legenda. */
 function photo(): void {
@@ -333,7 +335,7 @@ function bind(): void {
   const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
   let kq: string[] = [];
   addEventListener('keydown', e => {
-    if (e.key === 'Escape') { openDrawer(''); timelapse.stop(); }
+    if (e.key === 'Escape') { openDrawer(''); timelapse.stop(); houseView.close(); }
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
     const ts = Date.now() / 1000 - sim.genesis / 1000;
     kq = [...kq, e.key.length === 1 ? e.key.toLowerCase() : e.key].slice(-KONAMI.length);
@@ -380,7 +382,14 @@ function bind(): void {
     if (drag.moved) { renderer.cam.x = drag.cx - dx / (CW * renderer.zoom); renderer.cam.y = drag.cy - dy / (CH * renderer.zoom); renderer.clampCam(); }
   });
   fg.addEventListener('pointerup', e => {
-    if (drag && !drag.moved) { const a = renderer.agentAt(e.offsetX, e.offsetY); select(a); if (a && !playersOpen()) openDrawer('playersDrawer'); }
+    if (drag && !drag.moved) {
+      const a = renderer.agentAt(e.offsetX, e.offsetY), h = a ? null : renderer.houseAt(e.offsetX, e.offsetY);
+      if (h) {
+        const atHome = h.present && Math.abs(h.x - h.home.x) <= 1 && Math.abs(h.y - h.home.y) <= 1 && h.phase === 'stay';
+        const hr = hourAt(sim.tick);
+        houseView.show(h, atHome, atHome && h.state === 'REST' && (hr >= 23 || hr < 5.5));
+      } else { select(a); if (a && !playersOpen()) openDrawer('playersDrawer'); }
+    }
     drag = null;
     fg.classList.remove('dragging');
   });

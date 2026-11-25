@@ -438,14 +438,26 @@ export class Simulation {
       traits: { energy: 0.25 + r() * 0.75, social: r(), gardener: r(), wander: r() },
       arriveTick, meta, present: false, x: 0, y: 0, px: 0, py: 0, mt: 0, face: 1, state: 'ARRIVE', phase: 'go', wait: 0, path: [],
       dir: Math.floor(r() * 4), steps: 0, boidLeft: 0, mv: [0, 0], tree: null, friend: null, plaza: null, bubble: '', bubbleUntil: 0, hut: false,
-      home: { x: 0, y: 0 }, chatAt: -9999, friends: [], rivals: [], partner: null, inside: false, crystals: 0, items: [],
+      home: { x: 0, y: 0 }, chatAt: -9999, friends: [], rivals: [], partner: null, inside: false, crystals: 0, items: [], house: 0,
       instrument: fnv(name.toLowerCase() + '#inst') % INSTRUMENTS.length,
       pet: fnv(name.toLowerCase() + '#pet') % 3 === 0 ? { kind: fnv(name.toLowerCase() + '#petk') % PETS.length, name: PET_NAMES[fnv(name.toLowerCase() + '#petn') % PET_NAMES.length]! } : null,
       prof: fnv(name.toLowerCase() + '#prof') % PROFS.length, owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
     };
     a.home = this.pickHome(a, mate?.home);
+    a.house = this.houseType(a);
     if (mate && Math.abs(a.home.x - mate.home.x) < 16 && Math.abs(a.home.y - mate.home.y) < 8) { a.partner = mate; mate.partner = a; }
     return a;
+  }
+
+  /** Tipo da casa: palafita se mora na beira d'água; senão o login escolhe (casa na árvore só na mata). */
+  private houseType(a: Agent): number {
+    const { T } = this.terrain, h = fnv(a.name.toLowerCase() + '#house');
+    let wet = false;
+    for (let dy = -2; dy <= 3 && !wet; dy++) for (let dx = -5; dx <= 3; dx++) { const x = a.home.x + dx, y = a.home.y + dy; if (x >= 0 && y >= 0 && x < COLS && y < ROWS && T[y * COLS + x]! <= Tile.Shallow) { wet = true; break; } }
+    if (wet && h % 2 === 0) return 3;
+    const forest = T[a.home.y * COLS + a.home.x] === Tile.Forest;
+    const opts = forest ? [0, 1, 2, 2, 4] : [0, 0, 1, 4, 1];
+    return opts[(h >>> 3) % opts.length]!;
   }
 
   private pickHome(a: Agent, near?: Point): Point {

@@ -5,7 +5,7 @@ import { hourAt, stageOf, type Simulation } from '../sim/simulation';
 import { lightningAt } from '../sim/weather';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
-import { boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, houseSprite, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
+import { houseVariant, boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
 import { spritesFor, toolSprite } from './sprites';
 import { drawAnimals, drawCat, drawDeer, drawPets } from './animals';
 import { lookFor } from '../sim/look';
@@ -51,6 +51,9 @@ export class Renderer {
   private groundCache: GroundCache;
   /** posição na tela de cada morador visível no último quadro */
   readonly screen = new Map<Agent, { x: number; y: number }>();
+  /** retângulo de cada casa visível (para abrir a planta ao clicar) */
+  private houseRects: { a: Agent; x: number; y: number; w: number; h: number }[] = [];
+  houseAt(px: number, py: number): Agent | null { for (let k = this.houseRects.length - 1; k >= 0; k--) { const r = this.houseRects[k]!; if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r.a; } return null; }
   /** efeitos de brincadeira: chuva de estrelas (código Konami) e lanternas de papel soltas no céu (tecla L) */
   private starRainUntil = 0;
   private skyLanterns: { x: number; y: number; t0: number; hue: number }[] = [];
@@ -206,7 +209,7 @@ export class Renderer {
     for (const w of sim.terrain.wild) if (inV(w.x, w.y)) trees.push({ x: w.x, y: w.y, kind: ['mata-copa', 'mata-pinho', 'cipreste'][w.sp]!, variant: h32(w.x, w.y, 5) % 4, scale: w.big ? 1.1 : 0.75, thirsty: false });
     for (const t of sim.trees) { const st = stageOf(t); if (st > 0 && inV(t.x, t.y)) trees.push({ x: t.x, y: t.y, kind: SPECIES[t.sp]!.n, variant: h32(t.x, t.y, 5) % 4, scale: [0, 0.4, 0.7, 1][st]! * ((t.age ?? 0) >= 30 ? 1.3 : (t.age ?? 0) >= 14 ? 1.15 : 1), thirsty: sim.tick - t.lastWater > 3000 && !rain }); }
     const evening = L < 0.95;
-    const houses = sim.agents.filter(a => a.hut && inV(a.home.x - HOUSE_DX, a.home.y, 4)).map(a => ({ a, spr: houseSprite(a.hue, evening, cs, ch, this.dpr) }));
+    const houses = sim.agents.filter(a => a.hut && inV(a.home.x - HOUSE_DX, a.home.y, 4)).map(a => ({ a, spr: houseVariant(a.house, a.hue, evening, (a.meta.days ?? 0) >= 14, cs, ch, this.dpr) }));
     const fires: { x: number; y: number }[] = sim.terrain.plazas.filter(p => inV(p.x, p.y, 3));
     const burn = sim.fire && inV(sim.fire.x, sim.fire.y, 8) ? sim.fire : null;
     const party = sim.isParty();
@@ -268,7 +271,33 @@ export class Renderer {
       const spr = columnSprite(col.kind, col.h, h32(col.x, col.y, 3) % 12, cs, ch, this.dpr);
       ds.push({ y: col.y + 0.03, draw: () => fx.drawImage(spr.canvas, sx(col.x) - spr.w / 2, sy(col.y) - spr.h + ch * 0.15, spr.w, spr.h) });
     }
-    for (const { a, spr } of houses) ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, sx(a.home.x - HOUSE_DX) - spr.w / 2, sy(a.home.y) - spr.h + ch * 0.1, spr.w, spr.h) });
+    this.houseRects = [];
+    for (const { a, spr } of houses) {
+      const hx = sx(a.home.x - HOUSE_DX) - spr.w / 2, hy = sy(a.home.y) - spr.h + ch * 0.1, days = a.meta.days ?? 0;
+      this.houseRects.push({ a, x: hx, y: hy, w: spr.w, h: spr.h });
+      ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, hx, hy, spr.w, spr.h) });
+      // a casa cresce com os dias: cerca (3 dias), horta (7) e varal (14)
+      if (z < 0.65 || days < 3) continue;
+      ds.push({ y: a.home.y + 0.5, draw: () => {
+        fx.font = `700 ${Math.round(ch * 0.42)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+        const fy = sy(a.home.y) + ch * 0.35, x0 = hx - cs * 1.4;
+        fx.fillStyle = '#8a6a44';
+        for (let k = 0; k <= 9; k++) fx.fillText(k % 3 ? '-' : '+', x0 + k * cs * 0.5, fy);
+        if (days >= 7) {
+          // horta: canteiro com brotos e uma abóbora
+          const gx = hx - cs * 1.5, gy = sy(a.home.y) - ch * 0.35;
+          fx.fillStyle = '#4a3420'; fx.fillRect(gx - cs * 0.6, gy - ch * 0.25, cs * 1.3, ch * 0.5);
+          fx.fillStyle = '#6fbf5a'; for (let k = 0; k < 3; k++) fx.fillText(k === 1 ? 'Y' : 'v', gx - cs * 0.35 + k * cs * 0.35, gy);
+          fx.fillStyle = '#e8862a'; fx.fillText('o', gx + cs * 0.45, gy + ch * 0.05);
+        }
+        if (days >= 14) {
+          // varal com roupas na cor do dono, balançando com o vento
+          const vx0 = hx - cs * 1.9, vx1 = hx - cs * 0.2, vy = hy + spr.h * 0.45;
+          fx.strokeStyle = '#6a4426'; fx.lineWidth = 1.2; fx.beginPath(); fx.moveTo(vx0, vy + ch * 0.9); fx.lineTo(vx0, vy); fx.lineTo(vx1, vy); fx.lineTo(vx1, vy + ch * 0.9); fx.stroke();
+          for (let k = 0; k < 3; k++) { fx.fillStyle = `hsl(${(a.hue + k * 60) % 360} 60% 60%)`; const sw2 = Math.sin(ts * (1 + wx.wind * 3) + k) * 2 * z; fx.fillRect(vx0 + (k + 0.6) * (vx1 - vx0) / 4 + sw2, vy, cs * 0.35, ch * 0.35); }
+        }
+      } });
+    }
     // marcos espalhados pelo mapa
     for (const lm of sim.terrain.landmarks) {
       if (lm.kind === 'ponte' || !inV(lm.x + lm.w / 2, lm.y, 8)) continue;
