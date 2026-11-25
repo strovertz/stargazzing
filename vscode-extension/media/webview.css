@@ -1,0 +1,9 @@
+/* Ajustes da webview. No modo compacto fica só o mundo e um cartão com o morador. */
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+.sg-chip{display:none}
+.sg-compact .tools,.sg-compact .mini,.sg-compact .hint,.sg-compact .fabs,.sg-compact .drawer,.sg-compact .hud{display:none!important}
+.sg-compact .sg-chip{display:flex;flex-direction:column;gap:2px;position:absolute;left:8px;right:8px;bottom:8px;padding:6px 10px;border-radius:8px;
+  background:rgba(8,13,17,.82);border:1px solid rgba(255,255,255,.12);color:#e9e4d4;font:12px/1.35 Inter,system-ui,sans-serif;z-index:4;pointer-events:none}
+.sg-chip b{font:700 13px "Pixelify Sans",Inter,sans-serif;color:#f2c14e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-chip span{color:#b9b4a6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-compact .loading p{font-size:12px}
