@@ -23,7 +23,7 @@ export interface ForkCamp {
 }
 export interface Camper { x: number; y: number; face: 1 | -1; riding: boolean; asleep: boolean; atFire: boolean }
 export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number; votes: number }
-export interface Festival { name: string; kind: 'colheita' | 'solstício' | 'equinócio' | 'versão'; from: number; to: number }
+export interface Festival { name: string; kind: 'colheita' | 'solstício' | 'equinócio' | 'versão' | 'aniversário'; from: number; to: number }
 /** Com 60 stars a vila conserta a ponte do riacho e abre o mirante do outro lado. */
 export const BRIDGE_AT = 60;
 /** ticks por célula do cavaleiro (trote) */
@@ -109,6 +109,8 @@ export class Simulation {
   private readonly prev = new Int32Array(N);
   private readonly seen = new Uint32Array(N);
   private stamp = 0;
+  /** casas vazias de quem tirou a star ("aqui morou ...") */
+  readonly emptyHouses: { login: string; home: Point }[] = [];
   /** recados (issues "recado") por login e quem já teve PR aceito */
   readonly notes = new Map<string, string>();
   readonly builders = new Set<string>();
@@ -180,6 +182,7 @@ export class Simulation {
       }
     }
     for (const a of this.agents) this.relate(a);
+    this.placeEmpty();
     this.placeField();
     const nowMs = genesis;
     this.wheat = growth(this.terrain.noise, this.terrain.seed, WHEAT_EPOCH, nowMs, WHEAT_TARGET);
@@ -194,6 +197,28 @@ export class Simulation {
     this.startNotes();
   }
 
+  /** Casas vazias: mesmo jeito de escolher lugar de um morador, sem ninguém dentro. */
+  private placeEmpty(): void {
+    const LOGIN = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i, here = new Set(this.agents.map(a => a.name.toLowerCase()));
+    for (const login of [...(this.world.former ?? [])].filter(l => typeof l === 'string' && LOGIN.test(l) && !here.has(l.toLowerCase())).sort().slice(0, 40)) {
+      const ghost = { r: mulberry32(fnv(login.toLowerCase())) } as unknown as Agent;
+      const home = this.pickHome(ghost);
+      const i = home.y * COLS + home.x;
+      for (const j of houseCells(i, false)) this.terrain.block[j] = 1;
+      this.emptyHouses.push({ login, home });
+    }
+  }
+
+  /** Aniversários de star: 1 mês (30 dias), 6 meses e cada ano. */
+  anniversaries(): { a: Agent; what: string }[] {
+    const out: { a: Agent; what: string }[] = [];
+    for (const a of this.agents) {
+      const d = a.meta.days ?? 0;
+      if (d === 30) out.push({ a, what: '1 mês' }); else if (d === 182) out.push({ a, what: '6 meses' }); else if (d > 0 && d % 365 === 0) out.push({ a, what: `${d / 365} ano${d >= 730 ? 's' : ''}` });
+    }
+    return out;
+  }
+
   /** Festas do dia, pelo calendário real e pelos dados do repositório. */
   private planFestivals(): void {
     const local = new Date(this.genesis + (this.world.timezoneOffsetHours ?? -3) * 3_600_000 + 12 * 3_600_000);
@@ -203,6 +228,8 @@ export class Simulation {
     const before = growth(this.terrain.noise, this.terrain.seed, WHEAT_EPOCH, this.genesis + 18 * 3_600_000, WHEAT_TARGET).harvests;
     const start = growth(this.terrain.noise, this.terrain.seed, WHEAT_EPOCH, this.genesis, WHEAT_TARGET).harvests;
     if (before > start) this.festivals.push({ name: 'Festa da colheita', kind: 'colheita', from: at(18.5), to: at(22) });
+    const ann = this.anniversaries();
+    if (ann.length) this.festivals.push({ name: `Aniversário de vila: ${ann.slice(0, 3).map(x => `${x.a.name} (${x.what})`).join(', ')}`, kind: 'aniversário', from: at(17.5), to: at(19.5) });
     for (const r of this.extra.releases ?? []) {
       const t = Math.floor((Date.parse(r.at) - this.genesis) / TICK_MS);
       if (t >= -6 * TICKS_PER_HOUR && t < at(22)) { this.festivals.push({ name: `Festa da versão ${r.tag}`, kind: 'versão', from: Math.max(at(19), t), to: at(23.5) }); break; }

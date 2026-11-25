@@ -15,7 +15,7 @@ import { Timelapse } from './ui/timelapse';
 import { HouseView } from './ui/house';
 import { Dialogue } from './ui/dialogue';
 import { BoardView } from './ui/board';
-import { achievementsOf, boardNews, moodOf } from './sim/talk';
+import { achievementsOf, boardNews, firstPerson, moodOf, todayOf } from './sim/talk';
 import { BRIDGE_AT } from './sim/simulation';
 import { fnv } from './core/rng';
 import { encode, restore } from './sim/snapshot';
@@ -119,7 +119,20 @@ function renderCard(): void {
   for (const b of ach) { const s = document.createElement('span'); s.textContent = b.icon; s.title = b.name; s.setAttribute('aria-label', b.name); badges.append(s); }
   const note = sim.notes.get(a.name.toLowerCase()), noteEl = document.createElement('p');
   noteEl.className = 'bio note'; noteEl.textContent = note ? `Recado na porta: "${note}"` : '';
-  box.append(spriteCanvas(a), h4, s1, s2, bioEl, rel, ...(note ? [noteEl] : []), ...(ach.length ? [badges] : []), share, link);
+  // diário pessoal: as últimas coisas do dia, contadas pelo próprio morador
+  const mine = todayOf(sim, a, 5).map(t => firstPerson(a, t));
+  for (const l of sim.letters.filter(l => l.to === a.name).slice(-2)) mine.push(`Recebi uma carta de ${l.from}`);
+  const diary = document.createElement('div');
+  if (mine.length) {
+    diary.className = 'pdiary';
+    const h5 = document.createElement('b'); h5.textContent = `Diário de ${a.name}`;
+    const ul = document.createElement('ul');
+    for (const t of mine.slice(0, 5)) { const li = document.createElement('li'); li.textContent = `${t}.`; ul.append(li); }
+    diary.append(h5, ul);
+  }
+  const ann = sim.anniversaries().find(x => x.a === a);
+  if (ann) { const p = document.createElement('p'); p.className = 'bio note'; p.textContent = `Hoje faz ${ann.what} que ${a.name} mora na vila! Festa às 17h30.`; diary.prepend(p); }
+  box.append(spriteCanvas(a), h4, s1, s2, bioEl, rel, ...(note ? [noteEl] : []), ...(ach.length ? [badges] : []), ...(mine.length || ann ? [diary] : []), share, link);
   const md = moodOf(sim, a);
   moodBars = [];
   for (const [k, v] of [['Fome', md.hunger], ['Cansaço', md.tired], ['Alegria', md.joy], ['Energia', a.traits.energy], ['Sociável', a.traits.social], ['Jardineiro', a.traits.gardener], ['Explorador', a.traits.wander]] as const) {

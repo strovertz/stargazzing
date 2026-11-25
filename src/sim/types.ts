@@ -86,6 +86,8 @@ export interface WorldFile {
   demo?: boolean;
   generatedAt?: string;
   stargazers: StargazerEntry[];
+  /** logins que tiraram a star: a casa fica vazia, com placa */
+  former?: string[];
   /** dados do GitHub juntados na hora de carregar (não ficam no world.json) */
   extra?: RepoData;
 }

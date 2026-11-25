@@ -59,12 +59,21 @@ try {
   } catch { throw err; }
 }
 
+// quem tirou a star sai da lista, mas a casa fica vazia com uma placa: guarda os logins que sumiram
+let former = [];
+try {
+  const old = JSON.parse(await readFile(out, 'utf8'));
+  const now = new Set(stargazers.map(s => s.login.toLowerCase()));
+  former = [...new Set([...(old.former ?? []), ...(old.stargazers ?? []).map(s => s.login)])].filter(l => typeof l === 'string' && !now.has(l.toLowerCase())).slice(-40);
+} catch { /* primeiro build */ }
+
 const world = {
   repo,
   seed: SEED,
   timezoneOffsetHours: -3,
   generatedAt: new Date().toISOString(),
   stargazers,
+  ...(former.length ? { former } : {}),
 };
 await writeFile(out, JSON.stringify(world, null, 2) + '\n');
 console.log(`world.json: ${stargazers.length} stargazers de ${repo}`);

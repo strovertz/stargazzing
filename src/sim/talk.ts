@@ -40,11 +40,23 @@ export function todayOf(sim: Simulation, a: Agent, n = 5): string[] {
   return out;
 }
 
-/** Diário em primeira pessoa: as últimas coisas que o morador viveu hoje, contadas por ele. */
+/** Diário em primeira pessoa: "Fulano pescou um bagre" vira "Pesquei um bagre". */
+const VERB: Record<string, string> = {
+  chegou: 'cheguei', pescou: 'pesquei', foi: 'fui', deu: 'dei', colheu: 'colhi', regou: 'reguei', tocou: 'toquei', ouviu: 'ouvi', leu: 'li',
+  ganhou: 'ganhei', entregou: 'entreguei', montou: 'montei', apresentou: 'apresentei', acendeu: 'acendi', encheu: 'enchi', visitou: 'visitei',
+  sentou: 'sentei', achou: 'achei', voltou: 'voltei', entrou: 'entrei', viu: 'vi', plantou: 'plantei', trouxe: 'trouxe', fez: 'fiz', comprou: 'comprei',
+};
 export function firstPerson(a: Agent, text: string): string {
-  let t = text.replace(new RegExp(`^${a.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} `), 'Eu ');
-  t = t.replace(a.name, 'mim');
-  return t;
+  const esc = a.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let t = text;
+  const pair = new RegExp(`^${esc} e (\\S+) (fizeram|viraram|foram|pararam)`).exec(t);
+  if (pair) t = t.replace(pair[0], `Eu e ${pair[1]} ${{ fizeram: 'fizemos', viraram: 'viramos', foram: 'fomos', pararam: 'paramos' }[pair[2]!]}`);
+  else if (t.startsWith(`${a.name} `)) {
+    const rest = t.slice(a.name.length + 1), [verb, ...more] = rest.split(' ');
+    t = VERB[verb!] ? `${VERB[verb!]![0]!.toUpperCase()}${VERB[verb!]!.slice(1)} ${more.join(' ')}` : `${rest[0]!.toUpperCase()}${rest.slice(1)}`;
+  }
+  t = t.replace(new RegExp(`${esc} (\\S+)`, 'g'), (m, v: string) => (VERB[v] ? `eu ${VERB[v]}` : m));
+  return t.replace(new RegExp(`\\b${esc}\\b`, 'g'), 'mim').replace(/para mim e os dois/, 'para mim, e nós dois').trim();
 }
 
 const GREET = { manha: ['Bom dia!', 'Opa, bom dia.', 'Dia bonito pra andar por aí.'], tarde: ['Boa tarde!', 'E aí, tudo certo?', 'Olá, viajante.'], noite: ['Boa noite...', 'Ainda acordado?', 'Que noite, hein.'] };
@@ -82,7 +94,7 @@ export function linesFor(sim: Simulation, a: Agent): string[] {
   const g = h < 12 && h >= 5 ? GREET.manha : h < 18 && h >= 5 ? GREET.tarde : GREET.noite;
   out.push(`${pick(g, k)} ${m.tired > 0.75 ? '*boceja* ' : ''}${pick(BY_STATE[a.state] ?? ['Só dando uma volta.'], k >>> 3)}`);
   const today = todayOf(sim, a, 3);
-  if (today.length) out.push(`Hoje: ${firstPerson(a, today[0]!).replace(/^Eu /, 'eu ')}.`);
+  if (today.length) { const f = firstPerson(a, today[0]!); out.push(`Hoje eu... ${f[0]!.toLowerCase()}${f.slice(1)}.`); }
   const bits: string[] = [];
   if (m.hunger > 0.7) bits.push(pick(['Tô morrendo de fome.', 'Daqui a pouco é hora de comer.', 'Esse cheiro de pão vem de onde?'], k >>> 5));
   if (m.joy > 0.75) bits.push(pick(['Que dia bom!', 'Tô feliz demais hoje.', 'Adoro essa vila.'], k >>> 6));

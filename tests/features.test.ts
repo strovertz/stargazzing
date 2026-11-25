@@ -130,3 +130,12 @@ describe('falas e quadro', () => {
     expect(n.forecast.length).toBeGreaterThan(5);
   });
 });
+
+import { firstPerson as fp } from '../src/sim/talk';
+describe('diário em primeira pessoa', () => it('conjuga o verbo e troca o nome', () => {
+  const a = { name: 'ana-b' } as never;
+  expect(fp(a, 'ana-b pescou um bagre')).toBe('Pesquei um bagre');
+  expect(fp(a, 'ana-b e joao fizeram as pazes no conselho')).toBe('Eu e joao fizemos as pazes no conselho');
+  expect(fp(a, 'joao deu uma flor para ana-b')).toBe('joao deu uma flor para mim');
+  expect(fp(a, 'Colheita do trigo! ana-b encheu o celeiro')).toBe('Colheita do trigo! eu enchi o celeiro');
+}));

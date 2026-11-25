@@ -105,3 +105,6 @@ input{flex:1;font-size:16px;background:rgba(0,0,0,.35);border:1px solid var(--li
 .badges{display:flex;flex-wrap:wrap;gap:6px;grid-column:1/-1;margin:2px 0 4px}
 .badges span{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 4px;border-radius:7px;background:rgba(242,193,78,.14);border:1px solid rgba(242,193,78,.4);font-size:14px;cursor:help}
 .bio.note{font-style:italic;color:#f2e0b0}
+.pdiary{grid-column:1/-1;background:rgba(242,193,78,.06);border:1px dashed rgba(242,193,78,.3);border-radius:8px;padding:8px 10px;margin:4px 0;font-size:12.5px}
+.pdiary b{display:block;font:700 12px "JetBrains Mono",monospace;color:#f2c14e;margin-bottom:4px}
+.pdiary ul{margin:0;padding-left:16px}.pdiary li{margin:2px 0;color:var(--ink)}

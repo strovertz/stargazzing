@@ -11,6 +11,7 @@ import { drawAnimals, drawCampAnimal, drawCat, drawDeer, drawPets, HORSE } from 
 import { lookFor } from '../sim/look';
 import { clearTreeCache, treeSprite } from './trees';
 import { glow } from './glow';
+import { fnv as fnvName } from '../core/rng';
 import { CROPS } from '../sim/farm';
 import { BRIDGE_AT } from '../sim/simulation';
 
@@ -322,6 +323,23 @@ export class Renderer {
       if (col.kind === 2 || !inV(col.x, col.y, 6)) continue;
       const spr = columnSprite(col.kind, col.h, h32(col.x, col.y, 3) % 12, cs, ch, this.dpr);
       ds.push({ y: col.y + 0.03, draw: () => fx.drawImage(spr.canvas, sx(col.x) - spr.w / 2, sy(col.y) - spr.h + ch * 0.15, spr.w, spr.h) });
+    }
+    // casas vazias de quem tirou a star: telhado cinza, mato na porta e uma placa
+    for (const e of sim.emptyHouses) {
+      if (!inV(e.home.x - HOUSE_DX, e.home.y, 4)) continue;
+      const spr = houseVariant(0, 30, false, false, cs, ch, this.dpr), hx = sx(e.home.x - HOUSE_DX) - spr.w / 2, hy = sy(e.home.y) - spr.h + ch * 0.1;
+      ds.push({ y: e.home.y + 0.02, draw: () => {
+        fx.filter = 'grayscale(0.85) brightness(0.75)'; fx.drawImage(spr.canvas, hx, hy, spr.w, spr.h); fx.filter = 'none';
+        fx.font = `700 ${Math.round(ch * 0.55)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+        fx.fillStyle = '#4e6a3a'; for (let q = 0; q < 3; q++) fx.fillText(q % 2 ? 'w' : 'v', hx + spr.w * (0.25 + q * 0.25), sy(e.home.y) - ch * 0.1);
+        const px = sx(e.home.x + 0.4), py = sy(e.home.y) - ch * 0.5;
+        fx.fillStyle = '#6a4426'; fx.fillRect(px - 1, py, 2, ch * 0.5);
+        if (z >= 0.65 && !this.hideLabels) {
+          const t = `aqui morou ${e.login}`; fx.font = `600 ${Math.round(8 + 2 * z)}px "JetBrains Mono",monospace`;
+          const w = fx.measureText(t).width + 8; fx.fillStyle = '#c8b48a'; fx.fillRect(px - w / 2, py - ch * 0.5, w, ch * 0.5);
+          fx.fillStyle = '#3a2410'; fx.fillText(t, px, py - ch * 0.25);
+        }
+      } });
     }
     this.houseRects = [];
     for (const { a, spr } of houses) {
@@ -737,7 +755,7 @@ export class Renderer {
     // festa: fogos na versão nova, lanternas no solstício, confete de dia
     const fest = sim.festivalAt();
     if (fest && L < 0.6) {
-      if (fest.kind === 'versão' || fest.kind === 'colheita') for (let k = 0; k < 6; k++) {
+      if (fest.kind === 'versão' || fest.kind === 'colheita' || fest.kind === 'aniversário') for (let k = 0; k < 6; k++) {
         const per = 2.2, slot = Math.floor(ts / per + k * 0.29), u = (ts / per + k * 0.29) % 1, hh = h32(slot, k, seed);
         if (u > 0.75) continue;
         const cx = ((hh % 1000) / 1000) * VW * 0.8 + VW * 0.1, cy = (((hh >>> 10) % 1000) / 1000) * VH * 0.3 + VH * 0.08, col = ['#f2c14e', '#f07aa8', '#7cc4ff', '#86e095', '#ff9a5a'][hh % 5]!;
@@ -856,6 +874,22 @@ export class Renderer {
         if ((slot + me) % 2) continue;
         fx.fillStyle = '#e8e2d0';
         fx.fillText(CHAT[h32(slot, a.hue, 3) % CHAT.length]!, p.x + 7 * sc, p.y - 15 * sc - Math.sin(ts * 3) * 1.5);
+        continue;
+      }
+      // sonho: quem dorme solta bolinhas e uma nuvem com o que está sonhando (muda a cada hora)
+      const hh0 = hourAt(sim.tick);
+      if (z >= 0.65 && a.state === 'REST' && a.phase === 'stay' && (hh0 >= 23 || hh0 < 5.5)) {
+        const own = ['Ψ', '><>', '♪', '✿', '★', '◆', 'Ψ', '∩', '✉'][a.prof] ?? '★';
+        const pick = h32(Math.floor(sim.tick / 7200), fnvName(a.name), 9) % 4, icon = pick === 0 ? own : ['★', '♥', '☾', a.pet ? '∴' : '✿'][pick]!;
+        const u = (ts * 0.5 + a.hue / 90) % 1;
+        if (u < 0.82) {
+          fx.fillStyle = 'rgba(232,236,248,.75)';
+          for (let q = 0; q < 2; q++) { const r0 = (1.2 + q) * z; fx.beginPath(); fx.arc(p.x + (5 + q * 3) * sc, p.y - (10 + q * 3) * sc, r0, 0, 7); fx.fill(); }
+          const cx = p.x + 12 * sc, cy = p.y - 20 * sc - Math.sin(ts) * 1.5, w = 9 * sc, h2 = 6 * sc;
+          fx.beginPath(); fx.ellipse(cx, cy, w, h2, 0, 0, 7); fx.fill();
+          fx.fillStyle = '#5a5f78'; fx.font = `700 ${Math.round(9 + 3 * z)}px "JetBrains Mono",monospace`; fx.fillText(icon, cx, cy + 1);
+          fx.font = `700 ${Math.round(12 + 4 * z)}px Inter,sans-serif`;
+        }
         continue;
       }
       if (a.bubble === 'gift' && sim.tick <= a.bubbleUntil) {
