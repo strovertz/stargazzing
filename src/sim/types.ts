@@ -15,7 +15,7 @@ export interface Plaza extends Point { main: boolean }
 export interface Tree { x: number; y: number; sp: number; growth: number; lastWater: number; /** dias desde o plantio (árvores antigas ficam enormes) */ age?: number }
 export interface WildTree { x: number; y: number; big: boolean; sp: number; /** árvore do pomar, com frutas */ fruit?: boolean }
 /** Marco espalhado pelo mapa: moinho, torre de vigia, círculo de pedras, barraca de acampamento, ponte. */
-export interface Landmark { kind: 'moinho' | 'torre' | 'pedras' | 'barraca' | 'ponte' | 'caverna' | 'templo' | 'quadro' | 'pântano' | 'cogumelos' | 'pomar' | 'pedreira' | 'praia' | 'cercado' | 'floresta'; x: number; y: number; w: number; v: number }
+export interface Landmark { kind: 'moinho' | 'torre' | 'pedras' | 'barraca' | 'ponte' | 'caverna' | 'templo' | 'quadro' | 'pântano' | 'cogumelos' | 'pomar' | 'pedreira' | 'praia' | 'cercado' | 'floresta' | 'mirante'; x: number; y: number; w: number; v: number }
 /** Coluna da ágora: 0 inteira, 1 quebrada, 2 caída (tambores no chão). */
 export interface Column { x: number; y: number; kind: 0 | 1 | 2; h: number }
 
@@ -93,7 +93,13 @@ export interface WorldFile {
 /** Dados do repositório buscados no deploy (public/repo.json), todos opcionais. */
 export interface RepoData {
   forks?: { login: string; at: string }[];
-  requests?: { n: number; title: string; state: 'open' | 'closed'; closedAt?: string }[];
+  requests?: { n: number; title: string; state: 'open' | 'closed'; closedAt?: string; votes?: number }[];
+  /** issues com a label "recado": viram bilhete na porta da casa de quem escreveu */
+  notes?: { n: number; login: string; text: string; at: string }[];
+  /** releases publicadas: dia de festa com fogos */
+  releases?: { tag: string; name: string; at: string }[];
+  /** autores de pull requests aceitos: ganham chapéu de construtor */
+  builders?: string[];
   /** commits por dia (AAAA-MM-DD, UTC) nos últimos 14 dias */
   commits?: Record<string, number>;
   followers?: string[];

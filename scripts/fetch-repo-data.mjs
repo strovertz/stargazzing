@@ -1,5 +1,6 @@
 // Busca dados públicos do repositório e grava public/repo.json (só no build, não vai pro git):
-// forks, issues com a label "pedido", commits por dia (14 dias) e seguidores do dono.
+// forks, issues com a label "pedido" (com os 👍), recados (label "recado"), releases,
+// autores de PRs aceitos, commits por dia (14 dias) e seguidores do dono.
 // Cada parte é opcional: se uma chamada falhar, o resto segue e o mundo só não mostra aquela parte.
 import { writeFile } from 'node:fs/promises';
 
@@ -27,7 +28,21 @@ out.forks = await part('forks', async () => {
 });
 out.requests = await part('pedidos', async () => {
   const list = await get(`repos/${repo}/issues?labels=pedido&state=all&per_page=50&sort=created&direction=desc`);
-  return list.filter(i => !i.pull_request).map(i => ({ n: i.number, title: String(i.title).replace(/[\u0000-\u001f]/g, ' ').slice(0, 80), state: i.state === 'closed' ? 'closed' : 'open', ...(i.closed_at ? { closedAt: i.closed_at } : {}) }));
+  return list.filter(i => !i.pull_request).map(i => ({ n: i.number, title: String(i.title).replace(/[\u0000-\u001f]/g, ' ').slice(0, 80), state: i.state === 'closed' ? 'closed' : 'open', votes: Number(i.reactions?.['+1'] ?? 0) || 0, ...(i.closed_at ? { closedAt: i.closed_at } : {}) }));
+});
+const clean = s => String(s ?? '').replace(/[\u0000-\u001f<>]/g, ' ').replace(/\s+/g, ' ').trim();
+out.notes = await part('recados', async () => {
+  const list = await get(`repos/${repo}/issues?labels=recado&state=open&per_page=50&sort=created&direction=desc`);
+  return list.filter(i => !i.pull_request && LOGIN.test(i.user?.login ?? '')).slice(0, 40)
+    .map(i => ({ n: i.number, login: i.user.login, text: clean(i.title).slice(0, 90), at: i.created_at }));
+});
+out.releases = await part('releases', async () => {
+  const list = await get(`repos/${repo}/releases?per_page=10`);
+  return list.filter(r => !r.draft && r.published_at).map(r => ({ tag: clean(r.tag_name).slice(0, 30), name: clean(r.name || r.tag_name).slice(0, 60), at: r.published_at }));
+});
+out.builders = await part('construtores', async () => {
+  const list = await get(`repos/${repo}/pulls?state=closed&per_page=100`);
+  return [...new Set(list.filter(p => p.merged_at && LOGIN.test(p.user?.login ?? '') && !/\[bot\]$/.test(p.user.login)).map(p => p.user.login))];
 });
 out.commits = await part('commits', async () => {
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString();

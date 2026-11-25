@@ -12,6 +12,7 @@ import { lookFor } from '../sim/look';
 import { clearTreeCache, treeSprite } from './trees';
 import { glow } from './glow';
 import { CROPS } from '../sim/farm';
+import { BRIDGE_AT } from '../sim/simulation';
 
 export const CW = 10;
 export const CH = 18;
@@ -86,6 +87,7 @@ export class Renderer {
 
   /** Qualidade: 2 completa, 1 resolução menor, 0 resolução menor e sem o vento na grama. */
   quality = 2;
+  private festSlot = -1;
   setQuality(q: number): void { q = Math.max(0, Math.min(2, q)); if (q === this.quality) return; this.quality = q; this.resize(); this.warm = true; }
 
   resize(): void {
@@ -315,6 +317,13 @@ export class Renderer {
       const hx = sx(a.home.x - HOUSE_DX) - spr.w / 2, hy = sy(a.home.y) - spr.h + ch * 0.1, days = a.meta.days ?? 0;
       this.houseRects.push({ a, x: hx, y: hy, w: spr.w, h: spr.h });
       ds.push({ y: a.home.y + 0.02, draw: () => fx.drawImage(spr.canvas, hx, hy, spr.w, spr.h) });
+      // recado (issue com a label "recado") pregado na porta
+      if (z >= 0.65 && sim.notes.has(a.name.toLowerCase())) ds.push({ y: a.home.y + 0.03, draw: () => {
+        const nx = hx + spr.w * 0.5, ny = hy + spr.h * 0.62 + Math.sin(ts * 1.3 + a.hue) * z * 0.6;
+        fx.fillStyle = '#efe3c2'; fx.fillRect(nx - cs * 0.22, ny - ch * 0.16, cs * 0.44, ch * 0.3);
+        fx.fillStyle = '#8a7a5a'; fx.fillRect(nx - cs * 0.14, ny - ch * 0.07, cs * 0.28, 1); fx.fillRect(nx - cs * 0.14, ny + ch * 0.02, cs * 0.2, 1);
+        fx.fillStyle = '#c43c3c'; fx.fillRect(nx - 1, ny - ch * 0.19, 2, 2);
+      } });
       // horta de cada morador: 2 canteiros do lado da casa, com a cultura e o estágio de agora
       if (z >= 0.65) {
         const gd = sim.gardenOf(a), crop = CROPS[gd.crop]!, gx = hx - cs * 1.5, gy = sy(a.home.y) - ch * 0.35;
@@ -363,10 +372,43 @@ export class Renderer {
         }
       } });
     }
+    // ponte do riacho (quebrada até a vila juntar stars) e o mirante do outro lado
+    const br = sim.bridge;
+    if (br && inV(br.x, br.y, 16)) {
+      ds.push({ y: br.y + 0.4, draw: () => {
+        fx.font = `700 ${Math.round(ch * 0.7)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+        for (let k = -1; k <= 1; k++) for (let j = -1; j <= 1; j++) {
+          const broken = !br.fixed && (k + j * 2 + 3) % 3 === 0;
+          if (broken) { fx.fillStyle = '#3a2818'; fx.fillText(k === 0 ? '\\' : '/', sx(br.x + k), sy(br.y + j * 0.34) + ch * 0.2); continue; }
+          fx.fillStyle = j === 0 ? '#9a6a3a' : '#7a5530'; fx.fillRect(sx(br.x + k) - cs * 0.5, sy(br.y + j * 0.34) - ch * 0.14, cs * 0.92, ch * 0.26);
+        }
+        if (br.fixed) { fx.fillStyle = '#5a3a20'; fx.fillRect(sx(br.x - 1.5), sy(br.y - 0.55), cs * 3, 2); fx.fillRect(sx(br.x - 1.5), sy(br.y + 0.6), cs * 3, 2); }
+        else {
+          const sx0 = sx(br.x + 2), sy0 = sy(br.y) - ch * 0.9;
+          fx.fillStyle = '#6a4426'; fx.fillRect(sx0 - 1, sy0, 2, ch); fx.fillStyle = '#efe3c2'; fx.fillRect(sx0 - cs * 0.9, sy0 - ch * 0.5, cs * 1.8, ch * 0.5);
+          fx.fillStyle = '#3a2410'; fx.font = `700 ${Math.round(ch * 0.34)}px "JetBrains Mono",monospace`; fx.fillText(`obra ${Math.max(0, BRIDGE_AT - sim.stars)}★`, sx0, sy0 - ch * 0.25);
+        }
+      } });
+      const lk = br.lookout;
+      ds.push({ y: lk.y + 0.1, draw: () => {
+        fx.font = `700 ${Math.round(ch * 0.75)}px "JetBrains Mono",monospace`; fx.textAlign = 'center'; fx.textBaseline = 'middle';
+        if (!br.fixed) {
+          // mato fechado e uma placa com "?": ninguém passa até a ponte ficar pronta
+          for (let k = 0; k < 9; k++) { fx.fillStyle = k % 2 ? '#2e4a24' : '#3e5e2c'; fx.fillText(k % 3 ? '#' : '&', sx(lk.x - 1.5 + (k % 3) * 1.5), sy(lk.y - 1 + Math.floor(k / 3) * 0.8)); }
+          fx.fillStyle = '#f2c14e'; fx.fillText('?', sx(lk.x), sy(lk.y - 1.9) + Math.sin(ts * 2) * 2 * z);
+          return;
+        }
+        // mirante: banco, luneta e uma bandeirinha
+        fx.fillStyle = '#7a5530'; fx.fillRect(sx(lk.x - 1.4), sy(lk.y) - ch * 0.3, cs * 1.6, ch * 0.18); fx.fillRect(sx(lk.x - 1.3), sy(lk.y) - ch * 0.12, 2, ch * 0.3); fx.fillRect(sx(lk.x + 0.1), sy(lk.y) - ch * 0.12, 2, ch * 0.3);
+        fx.strokeStyle = '#b0b4bc'; fx.lineWidth = Math.max(1.5, 2 * z); fx.beginPath(); fx.moveTo(sx(lk.x + 1), sy(lk.y)); fx.lineTo(sx(lk.x + 1.2), sy(lk.y) - ch * 0.8); fx.moveTo(sx(lk.x + 0.9), sy(lk.y) - ch * 0.85); fx.lineTo(sx(lk.x + 1.7), sy(lk.y) - ch * 1.15); fx.stroke();
+        fx.fillStyle = '#6a4426'; fx.fillRect(sx(lk.x - 2), sy(lk.y) - ch * 1.6, 2, ch * 1.6);
+        fx.fillStyle = '#c43c3c'; fx.beginPath(); fx.moveTo(sx(lk.x - 2) + 2, sy(lk.y) - ch * 1.6); fx.lineTo(sx(lk.x - 2) + 2 + cs * 0.8 + Math.sin(ts * 3) * 2, sy(lk.y) - ch * 1.4); fx.lineTo(sx(lk.x - 2) + 2, sy(lk.y) - ch * 1.2); fx.fill();
+      } });
+    }
     // marcos espalhados pelo mapa
     this.boardRect = null;
     for (const lm of sim.terrain.landmarks) {
-      if (lm.kind === 'ponte' || lm.kind === 'pântano' || lm.kind === 'cogumelos' || lm.kind === 'pomar' || lm.kind === 'pedreira' || lm.kind === 'praia' || lm.kind === 'cercado' || lm.kind === 'floresta' || !inV(lm.x + lm.w / 2, lm.y, 8)) continue;
+      if (lm.kind === 'ponte' || lm.kind === 'pântano' || lm.kind === 'cogumelos' || lm.kind === 'pomar' || lm.kind === 'pedreira' || lm.kind === 'praia' || lm.kind === 'cercado' || lm.kind === 'floresta' || lm.kind === 'mirante' || !inV(lm.x + lm.w / 2, lm.y, 8)) continue;
       if (lm.kind === 'pedras') {
         for (const [dx, dy] of [[0, -2], [6, -2], [1, 0], [5, 0], [3, -3]] as const) {
           const spr = menhirSprite(lm.v + dx, L < 0.5, cs, ch, this.dpr), x = lm.x + dx, y = lm.y + dy;
@@ -478,6 +520,8 @@ export class Renderer {
         }
         fx.save(); fx.translate(bx, by - 14 * sc - z + bob - (boat ? 4 * sc : 0)); if (face < 0) fx.scale(-1, 1); fx.drawImage(fr, -4 * sc, 0, 8 * sc, 14 * sc);
         if (!sleeping) fx.drawImage(toolSprite(a.prof, a.instrument), a.prof === 4 ? -6 * sc : 3 * sc, (a.prof === 4 ? 5 : 4) * sc, 4 * sc, 9 * sc);
+        // chapéu de construtor: quem teve pull request aceito no repositório
+        if (!sleeping && sim.builders.has(a.name.toLowerCase())) { fx.fillStyle = '#f2c14e'; fx.fillRect(-3 * sc, -1 * sc, 6 * sc, 2.4 * sc); fx.fillRect(-4.5 * sc, 1 * sc, 9 * sc, 1 * sc); fx.fillStyle = '#c8962a'; fx.fillRect(-0.5 * sc, -1 * sc, 1 * sc, 2.4 * sc); }
         fx.restore();
       } });
     }
@@ -624,8 +668,27 @@ export class Renderer {
         fx.fillStyle = '#c43c3c'; fx.fillRect(bx - 3 * z, by - 0.6 * z, 6 * z, 1.2 * z);
       }
     }
+    // festa: fogos na versão nova, lanternas no solstício, confete de dia
+    const fest = sim.festivalAt();
+    if (fest && L < 0.6) {
+      if (fest.kind === 'versão' || fest.kind === 'colheita') for (let k = 0; k < 6; k++) {
+        const per = 2.2, slot = Math.floor(ts / per + k * 0.29), u = (ts / per + k * 0.29) % 1, hh = h32(slot, k, seed);
+        if (u > 0.75) continue;
+        const cx = ((hh % 1000) / 1000) * VW * 0.8 + VW * 0.1, cy = (((hh >>> 10) % 1000) / 1000) * VH * 0.3 + VH * 0.08, col = ['#f2c14e', '#f07aa8', '#7cc4ff', '#86e095', '#ff9a5a'][hh % 5]!;
+        if (u < 0.15) { fx.fillStyle = col; fx.fillRect(cx - 1, cy + (1 - u / 0.15) * VH * 0.4, 2, 6); continue; }
+        const r = ((u - 0.15) / 0.6) * (90 + (hh % 60)), a2 = 1 - (u - 0.15) / 0.6;
+        fx.fillStyle = col; fx.globalAlpha = Math.max(0, a2);
+        for (let j = 0; j < 24; j++) { const ang = (j / 24) * Math.PI * 2, rr = r * (j % 2 ? 0.75 : 1); fx.fillRect(cx + Math.cos(ang) * rr, cy + Math.sin(ang) * rr + r * r * 0.003, 3.5, 3.5); }
+        glow(fx, cx, cy, r * 0.9, '255,230,180', a2 * 0.18);
+        fx.globalAlpha = 1;
+      }
+      if (fest.kind === 'solstício' || fest.kind === 'equinócio') {
+        const slot = Math.floor(ts / 3);
+        if (slot !== this.festSlot) { this.festSlot = slot; const ag = sim.terrain.agora; this.skyLanterns.push({ x: ag.x + ((h32(slot, 3, seed) % 1000) / 1000 - 0.5) * ag.rx * 2, y: ag.y, t0: ts, hue: h32(slot, 4, seed) % 60 }); if (this.skyLanterns.length > 30) this.skyLanterns.shift(); }
+      }
+    }
     // festa de pedido atendido: confete caindo sobre a ágora
-    if (party && L > 0.3) {
+    if (party && (L > 0.3 || fest?.kind === 'colheita')) {
       const ag = sim.terrain.agora;
       for (let k = 0; k < 70; k++) {
         const u = ((ts * (0.15 + (k % 5) * 0.03) + (h32(k, 81, seed) % 1000) / 1000) % 1);

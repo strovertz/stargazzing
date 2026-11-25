@@ -13,7 +13,10 @@ import type { Agent, AgentMeta, LogEntry, Plaza, Point, RepoData, State, Tree, W
 export interface Fire { x: number; y: number; hp: number; start: number; out: number }
 /** Acampamento de quem fez fork, na borda do mapa. */
 export interface ForkCamp { login: string; x: number; y: number }
-export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number }
+export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number; votes: number }
+export interface Festival { name: string; kind: 'colheita' | 'solstício' | 'equinócio' | 'versão'; from: number; to: number }
+/** Com 60 stars a vila conserta a ponte do riacho e abre o mirante do outro lado. */
+export const BRIDGE_AT = 60;
 
 const WED = 3;
 const DX8 = Int8Array.from(DIR8, d => d[0]), DY8 = Int8Array.from(DIR8, d => d[1]);
@@ -95,6 +98,13 @@ export class Simulation {
   private readonly prev = new Int32Array(N);
   private readonly seen = new Uint32Array(N);
   private stamp = 0;
+  /** recados (issues "recado") por login e quem já teve PR aceito */
+  readonly notes = new Map<string, string>();
+  readonly builders = new Set<string>();
+  /** festas do dia: colheita, solstício, equinócio e lançamento de versão */
+  festivals: Festival[] = [];
+  /** ponte quebrada do riacho e o mirante que ela abre */
+  bridge: { x: number; y: number; fixed: boolean; lookout: Point } | null = null;
   private soldToday = false;
   private bakedToday = false;
   /** campo de trigo da vila (ao lado do mercado) e o estado dele agora */
@@ -117,7 +127,9 @@ export class Simulation {
     this.extra = world.extra ?? {};
     this.bias = commitBias(this.extra, genesis + 12 * 3_600_000);
     this.eco = ecosystem(Math.floor(genesis / DAY_MS), this.terrain.seed);
-    this.requests = (this.extra.requests ?? []).slice(0, 30).map(q => ({ n: q.n, title: String(q.title).slice(0, 80), state: q.state, closedAt: q.closedAt ? Date.parse(q.closedAt) : undefined }));
+    this.requests = (this.extra.requests ?? []).slice(0, 30).map(q => ({ n: q.n, title: String(q.title).slice(0, 80), state: q.state, closedAt: q.closedAt ? Date.parse(q.closedAt) : undefined, votes: q.votes ?? 0 }));
+    for (const n of this.extra.notes ?? []) if (!this.notes.has(n.login.toLowerCase())) this.notes.set(n.login.toLowerCase(), n.text);
+    for (const b of this.extra.builders ?? []) this.builders.add(b.toLowerCase());
     this.merchant = merchantFor(this.extra, genesis, this.terrain.seed);
     this.structures = planVillage(this.terrain);
     this.lanterns = lanternSpots(this.terrain);
@@ -162,11 +174,46 @@ export class Simulation {
     this.wheat = growth(this.terrain.noise, this.terrain.seed, WHEAT_EPOCH, nowMs, WHEAT_TARGET);
     this.wheatSeen = this.wheat.harvests;
     this.wheatStock = nowMs - this.wheat.lastHarvest < 3 * DAY_MS ? 12 : 4;
+    this.planFestivals();
+    this.placeBridge();
     this.planMerchant();
     // votação mais recente do conselho (quarta, 19h30) vale até a próxima
     this.applyVote(this.weekOf(0), false);
     this.updateVillage(false);
     this.startNotes();
+  }
+
+  /** Festas do dia, pelo calendário real e pelos dados do repositório. */
+  private planFestivals(): void {
+    const local = new Date(this.genesis + (this.world.timezoneOffsetHours ?? -3) * 3_600_000 + 12 * 3_600_000);
+    const m = local.getUTCMonth() + 1, d = local.getUTCDate(), at = (h: number) => Math.round(h * TICKS_PER_HOUR);
+    const sky: [number, number, Festival['kind'], string][] = [[12, 21, 'solstício', 'Festa do solstício de verão'], [6, 21, 'solstício', 'Festa do solstício de inverno'], [3, 20, 'equinócio', 'Festa do equinócio de outono'], [9, 22, 'equinócio', 'Festa do equinócio de primavera']];
+    for (const [mm, dd, kind, name] of sky) if (m === mm && d === dd) this.festivals.push({ name, kind, from: at(18), to: at(23.5) });
+    const before = growth(this.terrain.noise, this.terrain.seed, WHEAT_EPOCH, this.genesis + 18 * 3_600_000, WHEAT_TARGET).harvests;
+    const start = growth(this.terrain.noise, this.terrain.seed, WHEAT_EPOCH, this.genesis, WHEAT_TARGET).harvests;
+    if (before > start) this.festivals.push({ name: 'Festa da colheita', kind: 'colheita', from: at(18.5), to: at(22) });
+    for (const r of this.extra.releases ?? []) {
+      const t = Math.floor((Date.parse(r.at) - this.genesis) / TICK_MS);
+      if (t >= -6 * TICKS_PER_HOUR && t < at(22)) { this.festivals.push({ name: `Festa da versão ${r.tag}`, kind: 'versão', from: Math.max(at(19), t), to: at(23.5) }); break; }
+    }
+  }
+  festivalAt(t = this.tick): Festival | null { for (const f of this.festivals) if (t >= f.from && t < f.to) return f; return null; }
+
+  /** Ponte do riacho: meio do riacho; o mirante fica a alguns passos, do lado de lá. */
+  private placeBridge(): void {
+    const s = this.terrain.stream;
+    if (s.length < 12) return;
+    const i = s[Math.floor(s.length * 0.45)]!, x = i % COLS, y = (i / COLS) | 0, ag = this.terrain.agora;
+    const dir = x < ag.x ? -1 : 1;
+    for (let r = 5; r < 14; r++) for (const dy of [0, -1, 1, -2, 2]) {
+      const lx = x + dir * r, ly = y + dy, j = ly * COLS + lx;
+      if (lx < 3 || lx >= COLS - 3 || ly < 3 || ly >= ROWS - 2) continue;
+      if ((this.terrain.T[j] === Tile.Grass || this.terrain.T[j] === Tile.Forest) && this.terrain.comp[j] && !this.terrain.block[j]) {
+        this.bridge = { x, y, fixed: false, lookout: { x: lx, y: ly } };
+        this.terrain.clearTrees(lx - 2, ly - 2, lx + 2, ly + 1);
+        return;
+      }
+    }
   }
 
   /** Campo de trigo 12x5 perto do mercado (ou da ágora), em grama livre longe das casas. */
@@ -307,6 +354,8 @@ export class Simulation {
     const swap = h32(week, 8, this.terrain.seed) % 2 === 1;
     if (swap) { const n = next[0]!.need; next[0]!.need = next[1]!.need; next[1]!.need = n; }
     if (announce) this.note(`Conselho na ágora: a vila votou e a próxima obra será ${swap ? next[1]!.kind : next[0]!.kind}`, 'evento');
+    const top = this.requests.filter(q => q.state === 'open' && q.votes > 0).sort((p, q) => q.votes - p.votes || p.n - q.n)[0];
+    if (announce && top) this.note(`O conselho contou os 👍: o pedido #${top.n} "${top.title}" (${top.votes} voto${top.votes > 1 ? 's' : ''}) é o primeiro da fila`, 'github');
   }
 
   /** No conselho, um par de rivais presentes faz as pazes (e vira amigo). */
@@ -341,6 +390,7 @@ export class Simulation {
   /** Festa na ágora nas 3 horas depois de um pedido atendido. */
   isParty(t = this.tick): boolean {
     const ms = this.genesis + t * TICK_MS;
+    if (this.festivalAt(t)) return true;
     return this.requests.some(q => q.state === 'closed' && q.closedAt !== undefined && ms >= q.closedAt && ms < q.closedAt + 3 * 3_600_000);
   }
   /** Conselho: quarta das 19h às 20h. */
@@ -381,6 +431,11 @@ export class Simulation {
       if (announce) this.note(`A vila construiu ${s.kind === 'lanternas' ? 'as lanternas da ágora' : s.kind === 'jardim' ? 'um jardim em volta do poço' : s.kind === 'píer' ? 'um píer no lago' : `um${s.kind === 'estátua' ? 'a' : ''} ${s.kind}`} (${s.need} stars)`, 'obra');
     }
     if (!this.templeOpen && n >= 25) { this.templeOpen = true; this.terrain.version++; if (announce) this.note('Com 25 stars a mata se abriu e revelou um templo escondido', 'lenda'); }
+    if (this.bridge && !this.bridge.fixed && n >= BRIDGE_AT) {
+      this.bridge.fixed = true; this.terrain.version++;
+      this.terrain.landmarks.push({ kind: 'mirante', x: this.bridge.lookout.x, y: this.bridge.lookout.y, w: 1, v: 0 });
+      if (announce) this.note(`Com ${BRIDGE_AT} stars a vila consertou a ponte do riacho, e do outro lado apareceu um mirante`, 'obra');
+    }
     if (!this.crystalLit && n >= 50) { this.crystalLit = true; if (announce) this.note('Com 50 stars o cristal do templo acendeu', 'lenda'); }
     const want = Math.min(this.brokenCols.length, Math.max(0, Math.floor((n - 2) / STARS_PER_COLUMN) + 1));
     while (this.restored < want) {
@@ -456,6 +511,7 @@ export class Simulation {
     if (t === Math.round(19.75 * TICKS_PER_HOUR) && this.weekday === WED) this.makePeace();
     if (t === Math.round(9 * TICKS_PER_HOUR) && this.merchantPath.length) this.note(`O mercador ${this.merchant} chegou pelo oeste com sua carroça`, 'github');
     if (t === Math.round(0.75 * TICKS_PER_HOUR) && this.deerAt(t)) this.note('Lua cheia: alguém jura ter visto o cervo branco entre as árvores', 'lenda');
+    for (const f of this.festivals) if (t === f.from) this.note(`${f.name} na ágora!${f.kind === 'versão' ? ' Fogos no céu' : f.kind === 'colheita' ? ' Pão quente para todo mundo' : ' Lanternas acesas até tarde'}`, 'evento');
     for (const q of this.requests) {
       if (q.state !== 'closed' || q.closedAt === undefined) continue;
       const at = Math.floor((q.closedAt - this.genesis) / TICK_MS);

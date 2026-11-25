@@ -15,7 +15,8 @@ import { Timelapse } from './ui/timelapse';
 import { HouseView } from './ui/house';
 import { Dialogue } from './ui/dialogue';
 import { BoardView } from './ui/board';
-import { boardNews, moodOf } from './sim/talk';
+import { achievementsOf, boardNews, moodOf } from './sim/talk';
+import { BRIDGE_AT } from './sim/simulation';
 import { fnv } from './core/rng';
 import { encode, restore } from './sim/snapshot';
 import { loadSnap, saveSnap } from './core/store';
@@ -112,7 +113,12 @@ function renderCard(): void {
     return b;
   };
   share.append(mk('Copiar link', `${page}?u=${encodeURIComponent(a.name)}`), mk('Cartão p/ README', `[![${a.name} em Stargazzing](${page}cards/${encodeURIComponent(a.name.toLowerCase())}.svg)](${page}?u=${encodeURIComponent(a.name)})`));
-  box.append(spriteCanvas(a), h4, s1, s2, bioEl, rel, share, link);
+  const ach = achievementsOf(sim, a), badges = document.createElement('div');
+  badges.className = 'badges';
+  for (const b of ach) { const s = document.createElement('span'); s.textContent = b.icon; s.title = b.name; s.setAttribute('aria-label', b.name); badges.append(s); }
+  const note = sim.notes.get(a.name.toLowerCase()), noteEl = document.createElement('p');
+  noteEl.className = 'bio note'; noteEl.textContent = note ? `Recado na porta: "${note}"` : '';
+  box.append(spriteCanvas(a), h4, s1, s2, bioEl, rel, ...(note ? [noteEl] : []), ...(ach.length ? [badges] : []), share, link);
   const md = moodOf(sim, a);
   moodBars = [];
   for (const [k, v] of [['Fome', md.hunger], ['Cansaço', md.tired], ['Alegria', md.joy], ['Energia', a.traits.energy], ['Sociável', a.traits.social], ['Jardineiro', a.traits.gardener], ['Explorador', a.traits.wander]] as const) {
@@ -288,7 +294,7 @@ function renderDiary(): void {
     li.className = done ? 'done' : '';
     li.append(b, st); works.append(li);
   }
-  for (const [label, need] of [['Templo escondido', 25], ['Cristal do templo', 50]] as const) {
+  for (const [label, need] of [['Templo escondido', 25], ['Cristal do templo', 50], ['Ponte do riacho e mirante', BRIDGE_AT]] as const) {
     const li = document.createElement('li'), b = document.createElement('b'), st = document.createElement('span');
     b.textContent = label; st.textContent = n >= need ? 'pronto' : `faltam ${need - n} stars`;
     li.className = n >= need ? 'done' : ''; li.append(b, st); works.append(li);
@@ -479,7 +485,7 @@ function bind(): void {
       if (h) {
         const atHome = h.present && Math.abs(h.x - h.home.x) <= 1 && Math.abs(h.y - h.home.y) <= 1 && h.phase === 'stay';
         const hr = hourAt(sim.tick);
-        houseView.show(h, atHome, atHome && h.state === 'REST' && (hr >= 23 || hr < 5.5));
+        houseView.show(h, atHome, atHome && h.state === 'REST' && (hr >= 23 || hr < 5.5), sim.notes.get(h.name.toLowerCase()));
       } else { select(a); if (a && !playersOpen()) openDrawer('playersDrawer'); }
     }
     drag = null;
@@ -501,6 +507,10 @@ function cleanRepo(d: unknown): RepoData {
   if (Array.isArray(o.forks)) out.forks = o.forks.map(f => ({ login: str(f?.login, 39), at: str(f?.at, 30) })).filter(f => f.login && f.at);
   if (Array.isArray(o.followers)) out.followers = o.followers.map(f => str(f, 39)).filter(Boolean);
   if (Array.isArray(o.requests)) out.requests = o.requests.filter(q => Number.isInteger(q?.n)).map(q => ({ n: q.n as number, title: str(q.title), state: q.state === 'closed' ? 'closed' as const : 'open' as const, closedAt: str(q.closedAt, 30) || undefined }));
+  if (Array.isArray(o.requests)) out.requests!.forEach((q, k) => { const v = (o.requests as { votes?: unknown }[])[k]?.votes; if (Number.isInteger(v) && (v as number) > 0) q.votes = Math.min(9999, v as number); });
+  if (Array.isArray(o.notes)) out.notes = o.notes.filter(x => Number.isInteger(x?.n)).map(x => ({ n: x.n as number, login: str(x.login, 39), text: str(x.text, 90), at: str(x.at, 30) })).filter(x => x.login && x.text);
+  if (Array.isArray(o.releases)) out.releases = o.releases.map(x => ({ tag: str(x?.tag, 30), name: str(x?.name, 60), at: str(x?.at, 30) })).filter(x => x.tag && x.at);
+  if (Array.isArray(o.builders)) out.builders = o.builders.map(x => str(x, 39)).filter(Boolean);
   if (o.commits && typeof o.commits === 'object') { out.commits = {}; for (const [k, v] of Object.entries(o.commits as Record<string, unknown>)) if (/^\d{4}-\d\d-\d\d$/.test(k) && Number.isInteger(v)) out.commits[k] = v as number; }
   return out;
 }

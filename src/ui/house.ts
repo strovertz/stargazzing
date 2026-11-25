@@ -24,7 +24,7 @@ export class HouseView {
   close(): void { this.root.hidden = true; }
   get open(): boolean { return !this.root.hidden; }
 
-  show(a: Agent, home: boolean, sleeping: boolean): void {
+  show(a: Agent, home: boolean, sleeping: boolean, note?: string): void {
     const days = a.meta.days ?? 0, type = a.house, g: Cell[][] = [];
     const out = type === 3 ? { c: '~', fg: '#4f8ab0', bg: '#bcd8e0' } : { c: ',', fg: '#8aa65a', bg: '#d8d0a0' };
     for (let y = 0; y < H; y++) { g.push([]); for (let x = 0; x < W; x++) g[y]!.push({ ...out, c: (x * 7 + y * 3) % 5 ? (type === 3 ? '-' : ' ') : out.c }); }
@@ -79,7 +79,7 @@ export class HouseView {
     this.info.textContent = `${days ? `${days} dia${days > 1 ? 's' : ''} de vila` : 'chegou hoje'}${extras.length ? ` · ${extras.join(', ')}` : ''}` +
       `${a.prof === 2 ? ` · ${INSTRUMENTS[a.instrument]} na parede` : ''}${a.pet ? ` · ${PETS[a.pet.kind]} ${a.pet.name}` : ''}` +
       ` · horta de ${CROPS[cropOf(a.name)]!.n}` +
-      ` · ${home ? (sleeping ? 'dormindo agora' : 'em casa agora') : 'saiu de casa'} · No baú: ${chest}.`;
+      ` · ${home ? (sleeping ? 'dormindo agora' : 'em casa agora') : 'saiu de casa'} · No baú: ${chest}.${note ? ` Recado na porta: "${note}"` : ''}`;
     this.root.hidden = false;
   }
 }

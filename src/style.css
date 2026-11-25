@@ -102,3 +102,6 @@ input{flex:1;font-size:16px;background:rgba(0,0,0,.35);border:1px solid var(--li
 .paper li{margin:2px 0;overflow-wrap:anywhere}
 .board button{color:#f0e0b8 !important}
 .trait.mood .m i{background:#f2c14e}.trait.mood:nth-of-type(n) .m{background:rgba(242,193,78,.15)}
+.badges{display:flex;flex-wrap:wrap;gap:6px;grid-column:1/-1;margin:2px 0 4px}
+.badges span{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 4px;border-radius:7px;background:rgba(242,193,78,.14);border:1px solid rgba(242,193,78,.4);font-size:14px;cursor:help}
+.bio.note{font-style:italic;color:#f2e0b0}

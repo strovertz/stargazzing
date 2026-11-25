@@ -113,7 +113,7 @@ export function questionFor(sim: Simulation, a: Agent): { id: number; q: string;
 }
 
 /** Notícias do quadro de anúncios. */
-export interface BoardNews { prices: { item: string; price: number; trend: -1 | 0 | 1 }[]; wheat: string; arrivals: string[]; works: { done: string[]; next: string | null }; fisher: string | null; friends: string[]; forecast: string; requests: { n: number; title: string }[]; count: number }
+export interface BoardNews { festivals: string[]; prices: { item: string; price: number; trend: -1 | 0 | 1 }[]; wheat: string; arrivals: string[]; works: { done: string[]; next: string | null }; fisher: string | null; friends: string[]; forecast: string; requests: { n: number; title: string }[]; count: number }
 export function boardNews(sim: Simulation): BoardNews {
   const arrivals = sim.agents.filter(a => !a.meta.days && a.present).map(a => a.name);
   const done = NEEDS.filter(([, n]) => sim.stars >= n).map(([k]) => k), nx = NEEDS.find(([, n]) => sim.stars < n);
@@ -121,11 +121,13 @@ export function boardNews(sim: Simulation): BoardNews {
   for (const a of sim.agents) { const n = a.items.filter(i => /lambari|traíra|bagre|peixe/.test(i)).length; if (n) catches.set(a.name, n); }
   for (const e of sim.log) if (e.kind === 'pesca') { const who = sim.agents.find(a => e.text.startsWith(a.name)); if (who) catches.set(who.name, (catches.get(who.name) ?? 0) + 1); }
   const fisher = [...catches].sort((p, q) => q[1] - p[1] || (p[0] < q[0] ? -1 : 1))[0];
+  const fest = sim.festivals.map(f => f.name);
   const friends = sim.log.filter(e => e.kind === 'amizade' && /viraram amigos|pazes|vizinhos|casal/.test(e.text)).slice(-4).map(e => e.text);
-  const requests = sim.requests.filter(q => q.state === 'open').slice(0, 5).map(q => ({ n: q.n, title: q.title }));
+  const requests = sim.requests.filter(q => q.state === 'open').sort((p, q) => q.votes - p.votes || p.n - q.n).slice(0, 5).map(q => ({ n: q.n, title: q.votes ? `${q.title} (${q.votes} 👍)` : q.title }));
   const ms = sim.genesis + sim.tick * TICK_MS, fresh = ms - sim.wheat.lastHarvest < DAY_MS;
   const wheat = `${['Terra arada', 'Brotando', 'Trigo verde', 'Trigo dourado, quase na colheita'][sim.wheat.stage]}. Próxima colheita: ${new Date(sim.wheat.nextHarvest).toLocaleDateString('pt-BR', { weekday: 'long' })}. Celeiro: ${sim.wheatStock} sacas.`;
   return {
+    festivals: fest,
     prices: pricesFor(Math.floor(sim.genesis / DAY_MS), sim.terrain.seed, fresh), wheat,
     arrivals, works: { done, next: nx ? `${nx[0]} (faltam ${nx[1] - sim.stars})` : null },
     fisher: fisher ? `${fisher[0]} (${fisher[1]} peixe${fisher[1] > 1 ? 's' : ''})` : null,
@@ -145,4 +147,22 @@ export function forecast(sim: Simulation): string {
   const main = [...kinds].sort((p, q) => q[1] - p[1])[0]![0];
   const morning = weatherAt(sim.terrain.noise, (base + 7 * 3_600_000) / 3_600_000, 7).kind;
   return `${main === 'limpo' ? 'Sol' : main[0]!.toUpperCase() + main.slice(1)} na maior parte do dia${morning !== main ? `, ${morning} cedo` : ''}${rainy >= 3 && main !== 'chuva' && main !== 'tempestade' ? ', com pancadas de chuva' : ''}.`;
+}
+
+/** Conquistas do morador, tiradas do estado de hoje e do histórico (dias de vila). */
+export function achievementsOf(sim: Simulation, a: Agent): { icon: string; name: string }[] {
+  const days = a.meta.days ?? 0, out: { icon: string; name: string }[] = [];
+  const first = [...sim.agents].sort((p, q) => (q.meta.days ?? 0) - (p.meta.days ?? 0))[0];
+  if (first === a) out.push({ icon: '①', name: 'Primeiro morador' });
+  if (days >= 30) out.push({ icon: '⌛', name: 'Veterano (30 dias)' }); else if (days >= 7) out.push({ icon: '☾', name: 'Uma semana de vila' });
+  if (a.items.includes('um peixe dourado')) out.push({ icon: '🐟', name: 'Peixe dourado' });
+  if (a.friends.length >= 5) out.push({ icon: '♥', name: 'Amigo de todos' });
+  if (a.partner) out.push({ icon: '⌂', name: 'Mora com o par' });
+  if (a.crystals > 0 || a.items.some(i => i.includes('cristal'))) out.push({ icon: '◆', name: 'Achou cristal' });
+  if (sim.letters.some(l => l.to === a.name)) out.push({ icon: '✉', name: 'Recebeu carta' });
+  if (sim.builders.has(a.name.toLowerCase())) out.push({ icon: '⚒', name: 'Construtor (PR aceito)' });
+  if (sim.notes.has(a.name.toLowerCase())) out.push({ icon: '✎', name: 'Deixou recado' });
+  if (sim.log.some(e => e.kind === 'trabalho' && e.text.startsWith(a.name) && e.text.includes('colheu'))) out.push({ icon: '✿', name: 'Colheu da horta' });
+  if (a.state === 'SIGHT' && a.sight === 'floresta densa' || sim.log.some(e => e.kind === 'lenda' && e.text.includes(a.name))) out.push({ icon: '✦', name: 'Entrou na mata' });
+  return out;
 }
