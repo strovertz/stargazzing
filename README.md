@@ -49,6 +49,10 @@ scripts/      busca de stargazers na API do GitHub
 tests/        determinismo, identidade e desempenho (com fixture de demonstração)
 ```
 
+## Stars reais
+
+O deploy do Pages roda `scripts/fetch-stargazers.mjs` antes do build, a cada star nova (evento `watch`), a cada 30 minutos e a cada push. O `GITHUB_TOKEN` das Actions não consegue ler stargazers, então o repositório precisa do secret `STARS_TOKEN`: um token fine-grained com acesso só a repositórios públicos e nenhuma permissão extra. Sem ele, o deploy segue com o `world.json` versionado e mostra um aviso.
+
 ## Roadmap
 
 1. ~~Protótipo~~
