@@ -13,10 +13,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   # Cada star nova entra no world.json pelo próprio evento, sem depender da API de stargazers.
   record-star:
@@ -75,7 +71,12 @@ jobs:
         with:
           path: dist
 
+  # Só o deploy entra na fila: com várias stars seguidas o GitHub descarta execuções pendentes
+  # da mesma fila, e o registro da star não pode ser descartado.
   deploy:
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
