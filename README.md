@@ -50,7 +50,7 @@ No site, o botão **Cartão p/ README** no card de cada morador já copia o mark
 
 | | |
 | --- | --- |
-| **Moradores** | O hash do login define aparência, chapéu, espécie da árvore, ritmo, temperamento e profissão: lenhador, pescador, músico, jardineiro, explorador ou minerador. Um em cada quatro é coruja e fica na fogueira até tarde. |
+| **Moradores** | O hash do login define aparência, chapéu, espécie da árvore, ritmo, temperamento e profissão: lenhador, pescador, músico, jardineiro, explorador, minerador, agricultor, padeiro ou carteiro. Um em cada quatro é coruja e fica na fogueira até tarde. |
 | **Relações** | A afinidade entre dois logins decide quem é amigo (sempre para para conversar e se visita), quem não se bica (desvia e resmunga) e quem forma casal e vai morar ao lado. |
 | **Casas e pets** | Cabana, casa de pedra, casa na árvore, palafita ou tenda, que ganham cerca, horta, varal e segundo andar com o tempo. Clique numa casa para ver a planta por dentro, em ASCII. Um terço dos moradores tem cachorro, gato, galinha, pato ou sapo. |
 | **Música** | Cada músico toca alaúde, flauta, tambor, harpa ou gaita; cada fogueira tem a sua melodia e dois músicos fazem dueto. |
@@ -60,6 +60,14 @@ No site, o botão **Cartão p/ README** no card de cada morador já copia o mark
 | **Natureza** | Coelhos e raposas seguem um modelo predador-presa dia a dia. Trilhas esquecidas viram flores. Um riacho desce até o lago com folhas e barquinhos de papel. |
 | **Cantos do mapa** | Pântano, clareira de cogumelos que brilham à noite, pomar, pedreira, praia e um cercado com ovelhas de onde saem trilhas para uma mata fechada que solta névoa. |
 | **Lendas** | Em noite de lua cheia aparece o cervo branco. Com 25 stars a mata revela um templo escondido, e com 50 o cristal dele acende. |
+| **Conversas** | Clique num morador para conversar: a fala muda com o humor, a hora, o clima e o que ele fez no dia, e dá para fazer uma pergunta por dia. O card mostra fome, cansaço, alegria, conquistas e o diário pessoal, contado em primeira pessoa. |
+| **Quadro de anúncios** | Na ágora, com festas do dia, preços da feira, previsão do tempo, chegadas, obras e os pedidos mais votados. Tecla `Q`. |
+| **Campo e hortas** | O trigo cresce em tempo real (mais rápido com chuva) e é colhido com festa; o padeiro assa pão com ele, o carteiro leva cartas entre amigos e cada horta tem sua cultura. |
+| **Festas** | Colheita, solstícios e equinócios pela data real, aniversário de quem chegou há 1 semana, 1 mês ou 1 ano, e fogos quando sai uma release nova. |
+| **Céu de verdade** | Chuvas de meteoros nas datas reais, eclipse lunar que deixa a lua vermelha, aurora rara no inverno, estrelas cadentes. |
+| **Tempo que muda o mapa** | Poças e riacho cheio depois da chuva, flores murchas na seca, folhas caindo no outono e lagos congelados no inverno. |
+| **A ponte** | Com 60 stars a vila conserta a ponte do riacho, e do outro lado aparece um mirante. |
+| **Quem tirou a star** | A casa fica vazia, com uma plaquinha "aqui morou". |
 | **Mutirão** | Na tempestade, um raio pode acertar uma árvore. Os vizinhos correm com baldes, apagam o fogo e replantam uma muda no lugar. |
 
 <table>
@@ -80,8 +88,11 @@ A cada deploy o site lê dados públicos do repositório:
 | No GitHub | Na floresta |
 | --- | --- |
 | ⭐ Star | Um morador novo chega pela borda |
-| 🍴 Fork | Um acampamento com o seu nome numa das bordas, com trilha até a ágora |
-| 📌 Issue com a label `pedido` | Um papel no quadro da ágora; quando a issue fecha, a vila faz festa com confete |
+| 🍴 Fork | Um acampamento com o seu nome numa das bordas: barraca, fogueira, cerca com cavalos, carroça e um bicho. O dono toca viola à noite e de vez em quando vai a cavalo até a ágora |
+| 📌 Issue com a label `pedido` | Um papel no quadro da ágora; 👍 na issue é voto, e o conselho anuncia o mais votado. Quando a issue fecha, a vila faz festa com confete |
+| 📝 Issue com a label `recado` | Um bilhete pregado na porta da casa de quem abriu a issue |
+| 🏷️ Release | Festa com fogos na ágora à noite |
+| 🔨 PR aceito | O morador ganha capacete de construtor |
 | 🛠️ Commits recentes | O céu abre. Uma semana sem commits traz neblina |
 | 👤 Seguidores do autor | Um por dia passa como mercador, com carroça, das 9h às 17h |
 
@@ -97,8 +108,27 @@ Quer pedir algo para a vila? [Abra uma issue](https://github.com/strovertz/starg
 | Botão **foto** | Baixa um PNG da cena, sem a interface, com legenda |
 | Botão **Timelapse** | Mostra a vila nascendo, star por star |
 | Botão **♪** | Som ambiente sintetizado: vento, chuva, grilos, fogueira e um alaúde que toca a melodia da noite (a mesma para todo mundo) |
+| `?t=21:30` na URL | Abre a vila nesse horário de hoje (link para mostrar a noite a alguém) |
+| Botão **Álbum** / tecla `A` | Figurinhas dos eventos raros que você viu: eclipse, aurora, festas, peixe dourado, cavaleiro... |
+| X no mapa | Todo dia tem um X de tesouro escondido, no mesmo lugar para todo mundo. Clique (ou tecle `X` quando ele estiver na tela) para cavar |
+| ✦ fazer um pedido | Aparece quando passa uma estrela cadente |
+| ♡ favoritar | No card do morador. Quando você volta, um aviso conta o que ele fez desde a sua última visita |
+| Botão **Ranking** / tecla `R` | Quem mais plantou, pescou, minerou e fez amigos |
+| Tecla `V` | Modo vitrine: tela cheia, sem interface, câmera passeando sozinha |
+| Teclas `Q` `P` `D` `C` `T` `F` `M` `+` `−` | Quadro, players, diário, como funciona, timelapse, foto, som e zoom |
 | Tecla `L` | Solta uma lanterna de papel no céu |
 | ↑ ↑ ↓ ↓ ← → ← → B A | 🤫 |
+
+## Para o seu site
+
+- **Embed:** `<iframe src="https://strovertz.github.io/stargazzing/?embed" width="640" height="360" style="border:0"></iframe>` mostra só o mapa, com um link de volta.
+- **Página de cada morador:** `/m/login/`, com diário, conquistas e imagem para redes sociais. É pública e só de leitura, sem login.
+- **Feeds do diário:** [`feed.json`](https://strovertz.github.io/stargazzing/feed.json) e [`feed.xml`](https://strovertz.github.io/stargazzing/feed.xml).
+- **App:** dá para instalar como PWA, que abre offline com a última vila vista.
+
+## Acessibilidade
+
+Em **Como funciona** → *Ver do seu jeito*: alto contraste (liga sozinho se o sistema pedir), texto grande e paletas para o mapa (sépia, verde de bolso em 4 tons, noite azul). A tecla `S` descreve a cena para leitor de tela: hora, clima, céu, quem aparece e o que está fazendo. Tudo funciona pelo teclado, e o movimento das gavetas respeita "reduzir movimento".
 
 ## Como funciona por dentro
 
@@ -113,7 +143,7 @@ Quer pedir algo para a vila? [Abra uma issue](https://github.com/strovertz/starg
 | Clima | Perlin 3D sobre o tempo real | Frentes de nuvem, pancadas, neblina, vento |
 | Bichos | Lotka-Volterra discreto | Coelhos e raposas que sobem e descem com as estações |
 
-O relógio anda em ticks de 0,5 s. Ao abrir, o site parte da meia-noite local e refaz o dia até agora, o que leva menos de um segundo. O render é em "mini-grade": cada célula vira 12 caracteres miúdos, o chão é rasterizado em blocos cacheados por zoom e a escuridão é uma camada em 1/4 da resolução, com furos de luz.
+O relógio anda em ticks de 0,5 s. Ao abrir, o site parte da meia-noite local e refaz o dia até agora num Web Worker, salvando um checkpoint por hora no IndexedDB: recarregar a página retoma do último checkpoint em décimos de segundo. O render é em "mini-grade": cada célula vira 12 caracteres miúdos, o chão é rasterizado em blocos cacheados por zoom e a escuridão é uma camada em 1/4 da resolução, com furos de luz.
 
 ## Rodando localmente
 
@@ -163,6 +193,10 @@ Cada star nova dispara o deploy pelo evento `watch` e entra no `world.json` na h
 
 - ⭐ **Stars** become villagers, 🍴 **forks** become camps at the map edge, 📌 **issues labeled `pedido`** are pinned to the agora board (the village throws a party when one closes), 🛠️ **commits** clear the sky, and the author's **followers** visit as merchants.
 - The village keeps growing: friendships and rivalries, couples living side by side, aging, a weekly council, a predator-prey ecosystem, lightning fires put out by bucket brigades, a white stag on full-moon nights and a hidden temple unlocked at 25 stars.
+- Forks camp with horses and ride to the agora, `recado` issues become notes on doors, 👍 on a `pedido` is a vote, releases bring fireworks and merged PRs earn a builder's hat.
+- Talk to villagers, read the notice board, find the daily treasure X, collect stickers of rare events (real meteor showers and eclipses), wish on shooting stars and follow a favorite villager.
+- `?t=21:30` opens the village at that time, `?embed` gives a map-only iframe, `/m/<login>/` is a public read-only page per villager, and the diary is published as `feed.json` / `feed.xml`.
+- Accessibility: high contrast, large text, map palettes and a screen-reader scene description (key `S`).
 - Get your own animated README card at `https://strovertz.github.io/stargazzing/cards/<your-login>.svg`.
 
 [**Open the world →**](https://strovertz.github.io/stargazzing/)
