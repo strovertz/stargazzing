@@ -73,6 +73,8 @@ export class Simulation {
   /** muda quando o chão (trilhas e flores) precisa ser redesenhado */
   groundVersion = 0;
   private reserved: Point[] = [];
+  /** retângulos na frente dos prédios comuns, onde ninguém monta casa */
+  private readonly fronts: { x0: number; x1: number; y0: number; y1: number }[] = [];
   /** diário do dia: chegadas, clima, obras, pescarias, eventos e céu */
   readonly log: LogEntry[] = [];
   readonly structures: Structure[];
@@ -170,6 +172,13 @@ export class Simulation {
     this.commons = planCommons(this.terrain, this.structures.find(s => s.kind === 'mercado'));
     const sites = planProjects(this.terrain);
     this.projects = PROJECTS.map(p => ({ ...p, b: sites.find(b => b.kind === p.kind) ?? null, day: null }));
+    // frente livre dos prédios comuns: sem mata nativa nem casa (e a árvore dela) tampando a fachada
+    for (const b of [...this.commons, ...sites, ...this.structures.filter(st => st.cells.length && st.kind !== 'píer')]) {
+      const w = 'w' in b ? b.w : b.cells.length;
+      if (w < 2) continue;
+      this.fronts.push({ x0: b.x - 4, x1: b.x + w + 3, y0: b.y - 1, y1: b.y + 6 });
+      this.terrain.clearTrees(b.x - 3, b.y - 1, b.x + w + 2, b.y + 6);
+    }
     // ordem de restauro: quebradas primeiro, depois caídas, sempre a mesma
     this.brokenCols = this.terrain.columns.map((c, i) => ({ c, i })).filter(o => o.c.kind > 0).sort((p, q) => p.c.kind - q.c.kind || p.i - q.i).map(o => o.i);
     const entries = world.stargazers.map(s => {
@@ -884,6 +893,7 @@ export class Simulation {
       const ag = this.terrain.agora;
       if (!ok || plazas.some(p => Math.abs(p.x - x) < 10 && Math.abs(p.y - y) < 6)) continue;
       if (((x - ag.x) / (ag.rx + 6)) ** 2 + ((y - ag.y) / (ag.ry + 4)) ** 2 < 1) continue;
+      if (this.fronts.some(f => x >= f.x0 && x <= f.x1 && y >= f.y0 && y <= f.y1)) continue;
       if (!relax && this.reserved.some(p => Math.abs(p.x - x) < (close ? 6 : 8) && Math.abs(p.y - y) < (close ? 2 : 4))) continue;
       this.reserved.push({ x, y });
       return { x, y };
