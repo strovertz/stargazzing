@@ -1,0 +1,83 @@
+{
+  "name": "stargazzing",
+  "displayName": "Stargazzing",
+  "description": "Acompanhe seu morador do Stargazzing (o mundo ASCII dos stargazers) direto no VS Code.",
+  "version": "0.1.0",
+  "publisher": "strovertz",
+  "license": "UNLICENSED",
+  "repository": { "type": "git", "url": "https://github.com/strovertz/stargazzing", "directory": "vscode-extension" },
+  "homepage": "https://strovertz.github.io/stargazzing/",
+  "icon": "media/icon.png",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "keywords": ["stargazzing", "ascii", "pixel art", "github stars", "pet"],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "stargazzing", "title": "Stargazzing", "icon": "media/activity.svg" }
+      ]
+    },
+    "views": {
+      "stargazzing": [
+        { "type": "webview", "id": "stargazzing.view", "name": "Morador", "icon": "media/activity.svg" }
+      ]
+    },
+    "commands": [
+      { "command": "stargazzing.follow", "title": "Seguir outro morador…", "category": "Stargazzing", "icon": "$(person)" },
+      { "command": "stargazzing.openPopup", "title": "Abrir em janela flutuante", "category": "Stargazzing", "icon": "$(multiple-windows)" },
+      { "command": "stargazzing.openPanel", "title": "Abrir numa aba do editor", "category": "Stargazzing", "icon": "$(open-preview)" },
+      { "command": "stargazzing.toggleCompact", "title": "Alternar modo compacto", "category": "Stargazzing", "icon": "$(screen-normal)" },
+      { "command": "stargazzing.reload", "title": "Recarregar o mundo", "category": "Stargazzing", "icon": "$(refresh)" },
+      { "command": "stargazzing.openSite", "title": "Abrir o site no navegador", "category": "Stargazzing", "icon": "$(link-external)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "stargazzing.follow", "when": "view == stargazzing.view", "group": "navigation@1" },
+        { "command": "stargazzing.toggleCompact", "when": "view == stargazzing.view", "group": "navigation@2" },
+        { "command": "stargazzing.openPopup", "when": "view == stargazzing.view", "group": "navigation@3" },
+        { "command": "stargazzing.openPanel", "when": "view == stargazzing.view", "group": "more@1" },
+        { "command": "stargazzing.reload", "when": "view == stargazzing.view", "group": "more@2" },
+        { "command": "stargazzing.openSite", "when": "view == stargazzing.view", "group": "more@3" }
+      ]
+    },
+    "configuration": {
+      "title": "Stargazzing",
+      "properties": {
+        "stargazzing.login": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Login do GitHub do morador a seguir. Vazio: usa a conta do GitHub já conectada ao VS Code ou o `github.user` do git."
+        },
+        "stargazzing.compact": {
+          "type": "boolean",
+          "default": true,
+          "description": "Esconde os menus do jogo e mostra só o mundo e um cartão com o que o morador está fazendo."
+        },
+        "stargazzing.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mostra na barra de status o que o morador está fazendo agora."
+        },
+        "stargazzing.liveData": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Busca a lista de moradores atualizada em `strovertz.github.io`. Desligado (ou offline), usa a cópia embutida na extensão."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:game": "node scripts/build-game.mjs",
+    "compile": "tsc -p .",
+    "build": "npm run build:game && npm run compile",
+    "package": "npm run build && vsce package --skip-license --out stargazzing.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "^4.1.1",
+    "typescript": "^7.0.2"
+  }
+}
