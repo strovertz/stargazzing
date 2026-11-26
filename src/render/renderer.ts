@@ -5,7 +5,7 @@ import { hourAt, stageOf, type Simulation } from '../sim/simulation';
 import { lightningAt, weatherAt } from '../sim/weather';
 import type { Agent } from '../sim/types';
 import { CHUNK, GroundCache } from './ground';
-import { houseVariant, boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, lanternSprite, marketSprite, statueSprite, wellSprite } from './props';
+import { houseVariant, boardSprite, caveSprite, cartSprite, templeSprite, boatSprite, menhirSprite, millSprite, tentSprite, towerSprite, clearPropCache, columnSprite, drawFire, lanternSprite, marketSprite, statueSprite, wellSprite, granarySprite, tavernSprite, shedSprite, workshopSprite, ovenSprite, lighthouseSprite, bandstandSprite, siteSprite, scaffoldSprite } from './props';
 import { spritesFor, toolSprite } from './sprites';
 import { drawAnimals, drawCampAnimal, drawCat, drawDeer, drawPets, HORSE } from './animals';
 import { lookFor } from '../sim/look';
@@ -64,9 +64,13 @@ export class Renderer {
   boardPapers = 0;
   /** X do tesouro do dia (jogo leve) e o morador favorito de quem visita */
   treasure: { x: number; y: number } | null = null;
+  /** plantinha que o visitante plantou (localStorage): posição e estágio 0..3 */
+  localPlant: { x: number; y: number; stage: number } | null = null;
   favorite: string | null = null;
   private treasureRect: { x: number; y: number; r: number } | null = null;
   get treasureInView(): boolean { return !!this.treasureRect; }
+  /** célula do mapa sob o ponto (px, py) da tela */
+  cellAt(px: number, py: number): { x: number; y: number } { const { ox, oy } = this.view(), cs = CW * this.zoom, ch = CH * this.zoom; return { x: Math.round(px / cs + ox - 0.5), y: Math.floor(py / ch + oy) }; }
   treasureAt(px: number, py: number): boolean { const t = this.treasureRect; return !!t && Math.abs(px - t.x) <= t.r && Math.abs(py - t.y) <= t.r; }
   private boardRect: { x: number; y: number; w: number; h: number } | null = null;
   boardAt(px: number, py: number): boolean { const r = this.boardRect; return !!r && px >= r.x - 6 && px <= r.x + r.w + 6 && py >= r.y - 6 && py <= r.y + r.h + 6; }
@@ -579,6 +583,66 @@ export class Renderer {
       const cx0 = st.kind === 'mercado' ? sx(st.x + 1) : sx(st.x);
       ds.push({ y: st.y + 0.02, draw: () => fx.drawImage(spr.canvas, cx0 - spr.w / 2, sy(st.y) - spr.h + ch * 0.1, spr.w, spr.h) });
     }
+    // economia comunitária: celeiro, taverna, galpão, oficina, caldeirão, canteiro e obras de mutirão
+    const hh = hourAt(sim.tick), mut = sim.agenda.find(e => e.kind === 'mutirão');
+    for (const b of sim.commons) {
+      if (!inV(b.x, b.y, 6)) continue;
+      const cx = sx(b.x + (b.w - 1) / 2), by = sy(b.y) + ch * 0.1;
+      if (b.kind === 'caldeirão') {
+        const cooking = hh >= 11.3 && hh < 13.5;
+        ds.push({ y: b.y + 0.05, draw: () => {
+          if (cooking) drawFire(fx, cx, by - ch * 0.1, cs * 0.6, ch * 0.6, ts, 11);
+          fx.fillStyle = '#1e1e22'; fx.beginPath(); fx.ellipse(cx, by - ch * 0.45, cs * 0.55, ch * 0.32, 0, 0, 7); fx.fill();
+          fx.fillStyle = '#3a3a40'; fx.fillRect(cx - cs * 0.6, by - ch * 0.75, cs * 1.2, ch * 0.12);
+          if (cooking) for (let k = 0; k < 3; k++) { const u = (ts * 0.5 + k / 3) % 1; fx.fillStyle = `rgba(230,230,230,${0.45 * (1 - u)})`; fx.fillText('o', cx + Math.sin(ts * 2 + k) * cs * 0.3, by - ch * (0.9 + u * 1.6)); }
+        } });
+        continue;
+      }
+      if (b.kind === 'canteiro') {
+        // jardim comunitário: uma flor por morador; as cores mudam conforme a vila cresce
+        const n = Math.min(sim.stars, 84), pal = sim.stars < 10 ? ['#f4efe4', '#fadc5a'] : sim.stars < 25 ? ['#f4efe4', '#fadc5a', '#f07aa8'] : sim.stars < 50 ? ['#fadc5a', '#f07aa8', '#7cc4ff', '#b89cff'] : ['#ff9a5a', '#f07aa8', '#7cc4ff', '#b89cff', '#e8463a', '#fadc5a'];
+        ds.push({ y: b.y - 0.5, draw: () => {
+          fx.fillStyle = 'rgba(70,45,25,.55)'; fx.fillRect(sx(b.x) - cs * 0.5, sy(b.y - 1) - ch * 0.5, cs * b.w, ch * 1.5);
+          for (let k = 0; k < n; k++) {
+            const col = k % (b.w * 3), row = Math.floor(k / (b.w * 3)) % 4, x = sx(b.x) - cs * 0.4 + (col + 0.5) * (cs * b.w / (b.w * 3)) * 0.95, y = sy(b.y - 1) - ch * 0.35 + row * ch * 0.33;
+            fx.fillStyle = '#3f7a3a'; fx.fillRect(x, y, 1, ch * 0.18);
+            fx.fillStyle = pal[h32(k, 7, 3) % pal.length]!; fx.fillRect(x - 1.5 * z, y - 1.5 * z, 3 * z, 3 * z);
+          }
+        } });
+        continue;
+      }
+      const spr = b.kind === 'celeiro' ? granarySprite(cs, ch, this.dpr) : b.kind === 'taverna' ? tavernSprite(L < 0.8 || (hh >= 19 && hh < 22), cs, ch, this.dpr) : b.kind === 'ferramentas' ? shedSprite(cs, ch, this.dpr) : workshopSprite(cs, ch, this.dpr);
+      const label = b.kind === 'ferramentas' ? 'galpão de ferramentas' : b.kind;
+      ds.push({ y: b.y + 0.02, draw: () => {
+        fx.drawImage(spr.canvas, cx - spr.w / 2, by - spr.h, spr.w, spr.h);
+        if (z >= 0.9) { fx.font = `600 ${Math.round(8 + 2 * z)}px Inter,sans-serif`; fx.textAlign = 'center'; fx.fillStyle = 'rgba(232,217,160,.8)'; fx.fillText(label, cx, by - spr.h - 4); }
+      } });
+    }
+    for (const p of sim.projects) {
+      const b = p.b;
+      if (!b || !inV(b.x, b.y, 8)) continue;
+      const cx = sx(b.x + (b.w - 1) / 2), by = sy(b.y) + ch * 0.1, built = sim.projectBuilt(p), building = !built && p.day === sim.today && !!mut && sim.tick >= mut.from;
+      const lit = L < 0.7;
+      const spr = built ? (p.kind === 'forno' ? ovenSprite((hh >= 5 && hh < 10) || (hh >= 18 && hh < 21), cs, ch, this.dpr) : p.kind === 'farol' ? lighthouseSprite(lit, cs, ch, this.dpr) : bandstandSprite(cs, ch, this.dpr)) : building ? scaffoldSprite(cs, ch, this.dpr) : siteSprite(cs, ch, this.dpr);
+      ds.push({ y: b.y + 0.02, draw: () => {
+        fx.drawImage(spr.canvas, cx - spr.w / 2, by - spr.h, spr.w, spr.h);
+        if (built && p.kind === 'farol' && lit) {
+          const top = by - spr.h + ch * 0.4, ang = ts * 0.8;
+          glow(fx, cx, top, 26 * z, '255,240,180', 0.6);
+          fx.fillStyle = 'rgba(255,240,180,.10)'; fx.beginPath(); fx.moveTo(cx, top); fx.arc(cx, top, cs * 9, ang, ang + 0.35); fx.closePath(); fx.fill();
+        }
+        if (!built && z >= 0.65) { fx.font = `600 ${Math.round(8 + 2 * z)}px Inter,sans-serif`; fx.textAlign = 'center'; fx.fillStyle = 'rgba(232,217,160,.85)'; fx.fillText(building ? `mutirão: ${p.name}` : p.name, cx, by - spr.h - 4); }
+      } });
+    }
+    // plantinha do visitante (só neste navegador)
+    const lp = this.localPlant;
+    if (lp && inV(lp.x, lp.y, 3)) ds.push({ y: lp.y + 0.01, draw: () => {
+      const x = sx(lp.x), y = sy(lp.y) - ch * 0.15, st = lp.stage;
+      fx.fillStyle = '#4f8a3a'; fx.fillRect(x - 0.5 * z, y - ch * (0.25 + st * 0.25), 1.5 * z, ch * (0.25 + st * 0.25));
+      if (st >= 1) { fx.fillStyle = '#6fb04a'; fx.fillRect(x - 3 * z, y - ch * 0.4, 3 * z, 2 * z); fx.fillRect(x + 0.5 * z, y - ch * 0.55, 3 * z, 2 * z); }
+      if (st >= 2) { fx.fillStyle = '#f07aa8'; fx.beginPath(); fx.arc(x, y - ch * (0.25 + st * 0.25), 2.6 * z, 0, 7); fx.fill(); fx.fillStyle = '#fadc5a'; fx.fillRect(x - 0.8 * z, y - ch * (0.25 + st * 0.25) - 0.8 * z, 1.6 * z, 1.6 * z); }
+      if (z >= 0.65) { fx.font = `600 ${Math.round(8 + 2 * z)}px Inter,sans-serif`; fx.textAlign = 'center'; fx.fillStyle = '#f07aa8'; fx.fillText('sua planta', x, y - ch * (0.6 + st * 0.3)); }
+    } });
     const lanternsOn = sim.structures.some(st => st.kind === 'lanternas' && st.built);
     if (lanternsOn) for (const [lx, ly] of sim.lanterns) {
       if (!inV(lx, ly, 3)) continue;

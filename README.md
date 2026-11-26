@@ -82,6 +82,20 @@ No site, o botão **Cartão p/ README** no card de cada morador já copia o mark
 </tr>
 </table>
 
+## Economia comunitária, sem dinheiro
+
+Ninguém compra nem vende: tudo vai para o **celeiro comum**, que aparece no quadro da ágora.
+
+| | |
+| --- | --- |
+| **Celeiro** | Trigo, pão, peixe, legumes, ervas, sementes, lenha e pedra. Quando algo falta, mais moradores vão pescar, cortar lenha ou cuidar da horta |
+| **Feira de trocas** | No fim de semana, peixe por pão, cristal por uma boa história. O mercador traz sementes e instrumentos e leva histórias e presentes |
+| **Mutirões** | Com lenha e pedra suficientes, a vila toda constrói às 15h: forno comunitário, farol do lago e coreto |
+| **Comida em comum** | Sopa no caldeirão da ágora ao meio-dia, ceia na taverna às 19h30 com bardo e banquete quando o celeiro enche |
+| **Cuidado** | Favores entre vizinhos (com agradecimento no diário), sopa para quem pegou resfriado na tempestade e uma oficina que conserta o que o raio estragou |
+| **Coisas de todos** | Galpão que empresta ferramentas, banco de sementes na primavera, carteiro com presentes, histórias na roda da fogueira e um jardim comunitário com uma flor por morador |
+| **Você** | No quadro (`Q`): oferenda no celeiro, uma semente que cresce no seu navegador e um bilhete lido na fogueira só para você |
+
 ## O GitHub vira mundo
 
 A cada deploy o site lê dados públicos do repositório:

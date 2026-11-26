@@ -1,6 +1,5 @@
 import { fnv, h32 } from '../core/rng';
-import { DAY_MS, INSTRUMENTS, TICK_MS, TICKS_PER_HOUR } from './constants';
-import { pricesFor } from './farm';
+import { DAY_MS, INSTRUMENTS, TICKS_PER_HOUR } from './constants';
 import { NEEDS } from './village';
 import { hourAt, isNight, type Simulation } from './simulation';
 import { weatherAt, type WeatherKind } from './weather';
@@ -125,25 +124,65 @@ export function questionFor(sim: Simulation, a: Agent): { id: number; q: string;
 }
 
 /** Notícias do quadro de anúncios. */
-export interface BoardNews { festivals: string[]; prices: { item: string; price: number; trend: -1 | 0 | 1 }[]; wheat: string; arrivals: string[]; works: { done: string[]; next: string | null }; fisher: string | null; friends: string[]; forecast: string; requests: { n: number; title: string }[]; count: number }
+export interface BoardNews {
+  agenda: string[]; granary: string[]; tools: string; mutirao: string[]; supper: string[]; arrivals: string[]; later: number;
+  rates: string[]; trades: string[]; favors: string[]; sick: string[]; mail: string[]; works: { done: string[]; next: string | null };
+  wheat: string; fisher: string | null; friends: string[]; forecast: string; requests: { n: number; title: string }[]; count: number;
+}
+const hhmm = (t: number) => `${String(Math.floor(t / TICKS_PER_HOUR) % 24).padStart(2, '0')}:${String(Math.floor((t % TICKS_PER_HOUR) / (TICKS_PER_HOUR / 60))).padStart(2, '0')}`;
+/** "hoje", "amanhã" ou o dia da semana de um dia absoluto */
+function whenDay(sim: Simulation, day: number): string {
+  const d = day - sim.today;
+  if (d === 0) return 'hoje';
+  if (d === 1) return 'amanhã';
+  return new Date(day * DAY_MS + 12 * 3_600_000).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'numeric', timeZone: 'UTC' });
+}
+/** Quantos papéis novos o quadro tem (barato: roda a cada segundo para desenhar os papéis). */
+export function boardCount(sim: Simulation): number {
+  return sim.agents.filter(a => !a.meta.days && a.present).length + Math.min(3, sim.trades.length) + Math.min(3, sim.favors.length) + sim.requests.filter(q => q.state === 'open').length;
+}
 export function boardNews(sim: Simulation): BoardNews {
-  const arrivals = sim.agents.filter(a => !a.meta.days && a.present).map(a => a.name);
+  const now = sim.tick, s = sim.stock;
+  const arrivals = sim.agents.filter(a => !a.meta.days && a.present).map(a => a.name), later = sim.agents.filter(a => !a.meta.days && !a.present).length;
   const done = NEEDS.filter(([, n]) => sim.stars >= n).map(([k]) => k), nx = NEEDS.find(([, n]) => sim.stars < n);
+  // melhor pescador: só o que pescou hoje (anotado no diário pelo nome exato)
   const catches = new Map<string, number>();
-  for (const a of sim.agents) { const n = a.items.filter(i => /lambari|traíra|bagre|peixe/.test(i)).length; if (n) catches.set(a.name, n); }
-  for (const e of sim.log) if (e.kind === 'pesca') { const who = sim.agents.find(a => e.text.startsWith(a.name)); if (who) catches.set(who.name, (catches.get(who.name) ?? 0) + 1); }
+  for (const e of sim.log) if (e.kind === 'pesca') { const m = e.text.match(/^(\S+) pescou (?!uma bota)/); if (m) catches.set(m[1]!, (catches.get(m[1]!) ?? 0) + 1); }
   const fisher = [...catches].sort((p, q) => q[1] - p[1] || (p[0] < q[0] ? -1 : 1))[0];
-  const fest = sim.festivals.map(f => f.name);
   const friends = sim.log.filter(e => e.kind === 'amizade' && /viraram amigos|pazes|vizinhos|casal/.test(e.text)).slice(-4).map(e => e.text);
   const requests = sim.requests.filter(q => q.state === 'open').sort((p, q) => q.votes - p.votes || p.n - q.n).slice(0, 5).map(q => ({ n: q.n, title: q.votes ? `${q.title} (${q.votes} 👍)` : q.title }));
-  const ms = sim.genesis + sim.tick * TICK_MS, fresh = ms - sim.wheat.lastHarvest < DAY_MS;
-  const wheat = `${['Terra arada', 'Brotando', 'Trigo verde', 'Trigo dourado, quase na colheita'][sim.wheat.stage]}. Próxima colheita: ${new Date(sim.wheat.nextHarvest).toLocaleDateString('pt-BR', { weekday: 'long' })}. Celeiro: ${sim.wheatStock} sacas.`;
+  const nh = sim.wheat.nextHarvest, nhDay = Math.floor((nh + (sim.world.timezoneOffsetHours ?? -3) * 3_600_000) / DAY_MS);
+  const wheat = `${['Terra arada', 'Brotando', 'Trigo verde', 'Trigo dourado, quase na colheita'][sim.wheat.stage]}. Próxima colheita: ${whenDay(sim, nhDay)}.`;
+  const agenda = sim.agenda.filter(e => e.kind !== 'mercador').map(e => `${hhmm(e.from)} ${e.name}${now >= e.from && now < e.to ? ' (agora!)' : now >= e.to ? ' (já foi)' : ''}`);
+  if (sim.merchant && sim.agenda.some(e => e.kind === 'mercador')) agenda.push(`09:00–17:00 Mercador ${sim.merchant} no mercado, trocando sementes por histórias`);
+  const granary = [
+    `trigo ${sim.wheatStock} sacas${sim.low('trigo') ? ' ▼ falta' : ''}`,
+    ...(['pão', 'peixe', 'legumes', 'ervas', 'sementes', 'lenha', 'pedra'] as const).map(g => `${g.padEnd(9, ' ')}${String(s[g]).padStart(3, ' ')}${sim.low(g) ? '  ▼ falta' : ''}`),
+  ];
+  const tools = `Galpão de ferramentas: ${sim.toolsOut} de ${sim.toolsTotal} emprestadas`;
+  const nextP = sim.projects.find(p => !sim.projectBuilt(p)), built = sim.projects.filter(p => sim.projectBuilt(p)).map(p => `✓ ${p.name}`);
+  const mutirao = [...built];
+  if (nextP) {
+    const mt = sim.agenda.find(e => e.kind === 'mutirão');
+    if (nextP.day === sim.today && mt) mutirao.push(now < mt.from ? `→ ${nextP.name}: mutirão HOJE às ${hhmm(mt.from)}! Toda a vila vai` : `→ ${nextP.name}: mutirão acontecendo agora`);
+    else mutirao.push(`→ ${nextP.name}: precisa de ${nextP.lenha} feixes de lenha e ${nextP.pedra} pedras`, `   no celeiro: ${s.lenha} de lenha, ${s.pedra} de pedra`, nextP.day !== null ? `   mutirão previsto: ${whenDay(sim, nextP.day)}, 15h` : '   ainda sem data');
+  } else mutirao.push('Todas as obras de mutirão estão prontas!');
+  const soup = sim.log.find(e => e.tick === sim.soupAt && /caldeirão/.test(e.text)), sup = sim.log.find(e => e.tick === sim.supperAt && /Ceia/.test(e.text));
+  const supper = [soup ? soup.text : 'Sopa no caldeirão da ágora ao meio-dia', sup ? sup.text : `Ceia na taverna às 19:30${s['pão'] < 2 && s.peixe < 2 ? ' (o celeiro está curto: traga o que puder)' : ''}`];
+  // trocas: quanto uma coisa vale em outra hoje, pela fartura do celeiro (sem moeda)
+  const pairs: [string, number, string, number][] = [['pão', s['pão'], 'peixe', s.peixe], ['cesto de legumes', s.legumes, 'feixe de lenha', s.lenha], ['punhado de sementes', s.sementes, 'maço de ervas', s.ervas]];
+  const rates = pairs.map(([a, na, b, nb]) => { const r = Math.max(1, Math.min(4, Math.round((nb + 1) / (na + 1)))); return r === 1 ? `1 ${a} ⇄ 1 ${b}` : `1 ${a} ⇄ ${r} ${b === 'peixe' ? 'peixes' : b.replace('feixe', 'feixes').replace('maço', 'maços')}`; });
+  rates.push('1 cristal ⇄ uma boa história na roda');
+  const trades = sim.trades.slice(-4).reverse().map(t => `${hhmm(t.tick)} ${t.text}`);
+  const favors = sim.favors.slice(-3).reverse().map(f => `${f.to} agradece ${f.from} por ${f.what}`);
+  const sick = sim.agents.filter(a => a.present && a.sickUntil > now).map(a => `${a.name} está de cama: leve uma sopa`);
+  const letters = sim.letters.filter(l => l.tick <= now), gifts = letters.filter(l => l.gift);
+  const mail = letters.length ? [`${letters.length} carta${letters.length > 1 ? 's' : ''} entregue${letters.length > 1 ? 's' : ''} hoje, ${gifts.length} com presente`, ...gifts.slice(-2).map(l => `${l.from} → ${l.to}: ${l.gift}`)] : [];
   return {
-    festivals: fest,
-    prices: pricesFor(Math.floor(sim.genesis / DAY_MS), sim.terrain.seed, fresh), wheat,
-    arrivals, works: { done, next: nx ? `${nx[0]} (faltam ${nx[1] - sim.stars})` : null },
-    fisher: fisher ? `${fisher[0]} (${fisher[1]} peixe${fisher[1] > 1 ? 's' : ''})` : null,
-    friends, forecast: forecast(sim), requests, count: arrivals.length + friends.length + requests.length,
+    agenda, granary, tools, mutirao, supper, arrivals, later, rates, trades, favors, sick, mail,
+    works: { done, next: nx ? `${nx[0]} (faltam ${nx[1] - sim.stars} star${nx[1] - sim.stars > 1 ? 's' : ''})` : null },
+    wheat, fisher: fisher ? `${fisher[0]} (${fisher[1]} peixe${fisher[1] > 1 ? 's' : ''})` : null,
+    friends, forecast: forecast(sim), requests, count: boardCount(sim),
   };
 }
 

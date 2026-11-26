@@ -8,6 +8,7 @@ import { CROPS, cropOf, growth, WHEAT_EPOCH, WHEAT_TARGET, type Growth } from '.
 import { Terrain } from './world';
 import { truce, weatherAt, type Weather } from './weather';
 import { lanternSpots, planVillage, STARS_PER_COLUMN, type Structure } from './village';
+import { dayOf, ledger, LOW, MERCHANT_BRINGS, MERCHANT_TAKES, planCommons, planProjects, PROJECTS, qty, startStock, TALES, type Building, type Good, type Project } from './commons';
 import type { Agent, AgentMeta, LogEntry, Plaza, Point, RepoData, State, Tree, WorldFile } from './types';
 
 /** Fogo de raio numa árvore: some com o mutirão dos baldes e vira muda replantada. */
@@ -25,8 +26,8 @@ export interface ForkCamp {
 export interface Camper { x: number; y: number; face: 1 | -1; riding: boolean; asleep: boolean; atFire: boolean }
 export interface Request { n: number; title: string; state: 'open' | 'closed'; closedAt?: number; votes: number }
 /** Compromisso marcado na agenda do dia. call: a vila toda vai para a ágora; truce: o tempo dá uma trégua. */
-export interface Scheduled { name: string; kind: 'conselho' | 'vaga-lumes' | 'feira' | 'mercador' | Festival['kind']; from: number; to: number; call: boolean }
-export interface Festival { name: string; kind: 'colheita' | 'solstício' | 'equinócio' | 'versão' | 'aniversário'; from: number; to: number }
+export interface Scheduled { name: string; kind: 'conselho' | 'vaga-lumes' | 'feira' | 'mercador' | 'mutirão' | 'sopa' | 'ceia' | 'sementes' | Festival['kind']; from: number; to: number; call: boolean; site?: Point }
+export interface Festival { name: string; kind: 'colheita' | 'solstício' | 'equinócio' | 'versão' | 'aniversário' | 'banquete'; from: number; to: number }
 /** Com 60 stars a vila conserta a ponte do riacho e abre o mirante do outro lado. */
 export const BRIDGE_AT = 60;
 /** ticks por célula do cavaleiro (trote) */
@@ -136,7 +137,20 @@ export class Simulation {
   /** próxima colheita de cada horta (ms) */
   private nextCrop = new Map<Agent, number>();
   /** cartas entregues hoje pelo carteiro */
-  readonly letters: { tick: number; from: string; to: string }[] = [];
+  readonly letters: { tick: number; from: string; to: string; gift?: string }[] = [];
+  /** prédios comuns (celeiro, taverna, galpão, oficina, caldeirão, canteiro) e obras de mutirão */
+  readonly commons: Building[];
+  projects: Project[] = [];
+  /** celeiro comum: o trigo fica em wheatStock, o resto aqui */
+  stock: Record<Good, number> = { trigo: 0, 'pão': 0, peixe: 0, legumes: 0, ervas: 0, sementes: 0, lenha: 0, pedra: 0 };
+  readonly trades: { tick: number; text: string }[] = [];
+  readonly favors: { tick: number; from: string; to: string; what: string }[] = [];
+  readonly repairs: { x: number; y: number; what: string; done: boolean }[] = [];
+  toolsOut = 0;
+  toolsTotal = 6;
+  /** tick em que a sopa do caldeirão e a ceia da taverna foram servidas (-1: ainda não) */
+  soupAt = -1;
+  supperAt = -1;
 
   constructor(readonly world: WorldFile, readonly genesis: number) {
     this.terrain = new Terrain(fnv(world.seed));
@@ -153,6 +167,9 @@ export class Simulation {
     this.merchant = merchantFor(this.extra, genesis, this.terrain.seed);
     this.structures = planVillage(this.terrain);
     this.lanterns = lanternSpots(this.terrain);
+    this.commons = planCommons(this.terrain, this.structures.find(s => s.kind === 'mercado'));
+    const sites = planProjects(this.terrain);
+    this.projects = PROJECTS.map(p => ({ ...p, b: sites.find(b => b.kind === p.kind) ?? null, day: null }));
     // ordem de restauro: quebradas primeiro, depois caídas, sempre a mesma
     this.brokenCols = this.terrain.columns.map((c, i) => ({ c, i })).filter(o => o.c.kind > 0).sort((p, q) => p.c.kind - q.c.kind || p.i - q.i).map(o => o.i);
     const entries = world.stargazers.map(s => {
@@ -196,6 +213,7 @@ export class Simulation {
     this.wheatSeen = this.wheat.harvests;
     this.wheatStock = nowMs - this.wheat.lastHarvest < 3 * DAY_MS ? 12 : 4;
     this.planFestivals();
+    this.setupCommons();
     this.sky = skyEventFor(genesis, world.timezoneOffsetHours ?? -3, this.season, this.terrain.seed);
     this.placeBridge();
     this.planMerchant();
@@ -462,11 +480,37 @@ export class Simulation {
     if (this.festivalAt(t)) return true;
     return this.requests.some(q => q.state === 'closed' && q.closedAt !== undefined && ms >= q.closedAt && ms < q.closedAt + 3 * 3_600_000);
   }
+  /** Celeiro do começo do dia, obras de mutirão e banquete, pela conta fechada dos dias anteriores. */
+  private setupCommons(): void {
+    const tz = this.world.timezoneOffsetHours ?? -3, today = dayOf(this.genesis + 12 * 3_600_000, tz);
+    const led = ledger(this.agents.map(a => ({ day: today - (a.meta.days ?? 0), prof: a.prof })), today);
+    this.projects.forEach((p, i) => { p.day = led.days[i] ?? null; if (p.day !== null && p.day < today && p.b) for (const c of p.b.cells) this.terrain.block[c] = 1; });
+    const profs = this.agents.filter(a => (a.meta.days ?? 0) > 0).map(a => a.prof);
+    this.stock = startStock(profs, today, this.terrain.seed, this.wheatStock, this.season);
+    this.stock.lenha = led.lenha; this.stock.pedra = led.pedra;
+    this.toolsTotal = 8 + Math.floor(this.agents.length / 4);
+    const at = (h: number) => Math.round(h * TICKS_PER_HOUR);
+    if (this.wheatStock + this.stock.peixe + this.stock.legumes >= 50 && !this.festivals.some(f => f.kind === 'colheita')) this.festivals.push({ name: 'Banquete do celeiro cheio', kind: 'banquete', from: at(20), to: at(22.5) });
+  }
+  /** dia absoluto de hoje (fuso da vila) */
+  get today(): number { return dayOf(this.genesis + 12 * 3_600_000, this.world.timezoneOffsetHours ?? -3); }
+  /** obra cujo mutirão é hoje, se houver */
+  mutiraoToday(): Project | null { return this.projects.find(p => p.day === this.today && p.b) ?? null; }
+  /** obra já de pé (mutirão em dia anterior, ou hoje depois do fim) */
+  projectBuilt(p: Project): boolean { if (p.day === null) return false; if (p.day < this.today) return true; const e = this.agenda.find(x => x.kind === 'mutirão'); return p.day === this.today && !!e && this.tick >= e.to; }
+  building(kind: Building['kind']): Building | undefined { return this.commons.find(b => b.kind === kind); }
+  low(g: Good): boolean { return g === 'trigo' ? this.wheatStock < 3 : this.stock[g] < (LOW[g] ?? 0); }
+
   /** Agenda do dia: conselho, corrida de vaga-lumes, feira, mercador e festas, com horário fixo. */
   agenda: Scheduled[] = [];
   private planAgenda(): void {
     const at = (h: number) => Math.round(h * TICKS_PER_HOUR), A = this.agenda;
-    if (this.weekday === 0 || this.weekday === 6) A.push({ name: 'Feira na ágora', kind: 'feira', from: at(9), to: at(17), call: false });
+    if (this.weekday === 0 || this.weekday === 6) A.push({ name: 'Feira de trocas na ágora', kind: 'feira', from: at(9), to: at(17), call: false });
+    A.push({ name: 'Sopa no caldeirão da ágora', kind: 'sopa', from: at(12), to: at(13), call: false });
+    A.push({ name: 'Ceia na taverna, com bardo', kind: 'ceia', from: at(19.5), to: at(21), call: false });
+    if (this.season === 3 && this.weekday === 6) A.push({ name: 'Troca de sementes no banco do celeiro', kind: 'sementes', from: at(10), to: at(11.5), call: false });
+    const mt = this.mutiraoToday();
+    if (mt?.b) A.push({ name: `Mutirão: construir o ${mt.name}`, kind: 'mutirão', from: at(15), to: at(17.5), call: true, site: { x: mt.b.x + Math.floor(mt.b.w / 2), y: mt.b.y + 1 } });
     if (this.merchantPath.length) A.push({ name: `Mercador ${this.merchant} de passagem`, kind: 'mercador', from: at(9), to: at(17), call: false });
     if (this.weekday === WED) A.push({ name: 'Conselho da vila na ágora', kind: 'conselho', from: at(19), to: at(20), call: true });
     if (this.weekday === 5) A.push({ name: 'Corrida de vaga-lumes', kind: 'vaga-lumes', from: at(20), to: at(21), call: true });
@@ -574,6 +618,7 @@ export class Simulation {
     }
     if (this.tick % 240 === 0) this.seasonPass();
     if (this.tick % 14_400 === 7_200) this.farmPass();
+    if (this.tick % 600 === 300) this.commonsPass();
     this.skyAndEvents();
     if (this.fire && this.tick - this.fire.start > 900) this.putOut(true);
   }
@@ -584,6 +629,7 @@ export class Simulation {
     if (t % 120 === 0) {
       const w = this.weather();
       if (w.kind !== this.lastKind) {
+        if (this.lastKind === 'tempestade') this.afterStorm();
         if (this.lastKind) this.note(w.kind === 'limpo' ? 'O céu abriu' : w.kind === 'tempestade' ? 'Tempestade! Todo mundo correu para casa' : `Começou: ${w.kind}`, 'clima');
         this.lastKind = w.kind;
       }
@@ -602,6 +648,20 @@ export class Simulation {
       const wet = [e.from - TICKS_PER_HOUR / 2, e.from, (e.from + e.to) / 2, e.to - 1].some(u => weatherAt(this.terrain.noise, (this.genesis + u * TICK_MS) / 3_600_000, hourAt(u), this.bias).rain > 0.3);
       if (wet) this.note(`A chuva deu uma trégua para ${e.kind === 'conselho' ? 'o conselho' : e.kind === 'vaga-lumes' ? 'a corrida de vaga-lumes' : 'a festa'}`, 'clima');
       for (const a of this.agents) if (a.present && !a.inside && a.state !== 'ARRIVE' && a.state !== 'PLANT' && a.state !== 'BUCKET' && a.state !== 'AGORA') this.decide(a);
+    }
+    if (t === Math.round(12 * TICKS_PER_HOUR)) this.serveSoup();
+    if (t === Math.round(12.5 * TICKS_PER_HOUR) && this.merchantPath.length) this.merchantTrade();
+    if (t === Math.round(18 * TICKS_PER_HOUR)) this.forgottenTool();
+    if (t === Math.round(19.5 * TICKS_PER_HOUR)) this.serveSupper();
+    for (const e of this.agenda) if (e.kind === 'mutirão') {
+      const p = this.mutiraoToday();
+      if (p && t === e.from) this.note(`Mutirão! A vila foi construir o ${p.name}: ${qty(p.lenha, 'lenha')} e ${qty(p.pedra, 'pedra')} saem do celeiro`, 'obra');
+      if (p && t === e.to) {
+        this.stock.lenha = Math.max(0, this.stock.lenha - p.lenha); this.stock.pedra = Math.max(0, this.stock.pedra - p.pedra);
+        this.terrain.version++;
+        const crew = this.agents.filter(a => a.state === 'BUILD').length;
+        this.note(`O ${p.name} ficou pronto! ${crew} moradores ergueram tudo juntos, sem dinheiro nenhum`, 'obra');
+      }
     }
     for (const f of this.festivals) if (t === f.from) this.note(`${f.name} na ágora!${f.kind === 'versão' ? ' Fogos no céu' : f.kind === 'colheita' ? ' Pão quente para todo mundo' : ' Lanternas acesas até tarde'}`, 'evento');
     for (const q of this.requests) {
@@ -635,6 +695,7 @@ export class Simulation {
     this.trees.push({ x: f.x, y: f.y, sp: h32(f.x, f.y, 9) % SPECIES.length, growth: 0, lastWater: this.tick });
     const crew = this.agents.filter(a => a.state === 'BUCKET').length;
     this.note(`${rain ? 'A chuva e o mutirão' : `O mutirão de ${Math.max(crew, 2)} moradores`} apagou o fogo e replantou uma muda no lugar`, 'trabalho');
+    this.repairs.push({ x: f.x, y: f.y + 1, what: 'a cerca chamuscada perto da árvore do raio', done: false });
   }
 
   /** Feira: sábado e domingo das 9h às 17h. Corrida de vaga-lumes: sexta das 20h às 21h. */
@@ -642,6 +703,130 @@ export class Simulation {
   isMarketDay(): boolean { return this.weekday === 0 || this.weekday === 6 || h32(Math.floor(this.genesis / DAY_MS), 31, this.terrain.seed) % 3 === 0; }
   isFair(t = this.tick): boolean { const h = hourAt(t); return (this.weekday === 0 || this.weekday === 6) && h >= 9 && h < 17; }
   isFireflyRace(t = this.tick): boolean { const h = hourAt(t); return this.weekday === 5 && h >= 20 && h < 21; }
+
+  /** Passada da economia comunitária (a cada 5 minutos): favores, trocas, histórias e consertos. */
+  private commonsPass(): void {
+    const t = this.tick, h = hourAt(t), k = Math.floor(t / 600), seed = this.terrain.seed;
+    const free = (b: Agent) => b.present && !b.inside && !b.favor && !b.fix && b.sickUntil <= t && b.state !== 'BUILD' && b.state !== 'BUCKET' && (b.phase === 'walk' || b.phase === 'boid' || (b.phase === 'stay' && b.wait < 30));
+    if (this.weather().storm) return;
+    // favor: alguém de cama, ou com a árvore com sede longe de casa, recebe ajuda de um amigo ou vizinho
+    if (k % 12 === 3 && h >= 8 && h < 21) {
+      const sick = this.agents.filter(a => a.present && a.sickUntil > t && !this.agents.some(b => b.favor?.to === a));
+      const thirsty = this.agents.filter(a => a.present && a.tree && t - a.tree.lastWater > 2400 && Math.abs(a.x - a.home.x) + Math.abs(a.y - a.home.y) > 20);
+      const pool = sick.length ? sick : thirsty;
+      if (pool.length) {
+        const who = pool[h32(t, 11, seed) % pool.length]!;
+        const pals = who.friends.filter(free), near = pals.length ? pals : this.agents.filter(b => b !== who && free(b) && Math.abs(b.home.x - who.home.x) < 40 && Math.abs(b.home.y - who.home.y) < 20 && !who.rivals.includes(b));
+        if (near.length) {
+          const b = near[h32(t, 12, seed) % near.length]!;
+          const what = sick.length ? (this.stock.ervas > 0 ? 'levar sopa de ervas para o resfriado' : 'levar sopa quente para o resfriado') : 'regar a árvore enquanto estava fora';
+          if (sick.length && this.stock.ervas > 0) this.stock.ervas--;
+          b.favor = { to: who, what }; b.state = 'VISIT'; b.friend = who;
+          this.goNear(b, who.home.x, who.home.y + 1, 1);
+        }
+      }
+    }
+    // feira de trocas: dois moradores na ágora (ou na banca) trocam o que têm
+    if (k % 3 === 0 && (this.isFair() || (this.isMarketDay() && h >= 9 && h < 12.5))) {
+      const here = this.agents.filter(a => a.present && (a.state === 'AGORA' || a.state === 'SELL') && !a.inside);
+      if (here.length >= 2) {
+        const a = here[h32(t, 21, seed) % here.length]!, b = here[(h32(t, 21, seed) + 1 + (h32(t, 22, seed) % (here.length - 1))) % here.length]!;
+        const ga = this.offerOf(a), gb = this.offerOf(b);
+        if (a !== b && ga !== gb) {
+          const ia = a.items.indexOf(ga), ib = b.items.indexOf(gb);
+          if (ia >= 0) a.items.splice(ia, 1);
+          if (ib >= 0) b.items.splice(ib, 1);
+          if (a.items.length < 12) a.items.push(`${gb} (troca com ${b.name})`);
+          if (b.items.length < 12) b.items.push(`${ga} (troca com ${a.name})`);
+          a.bubble = b.bubble = '⇄'; a.bubbleUntil = b.bubbleUntil = t + 20;
+          const text = `${a.name} trocou ${ga} por ${gb} com ${b.name}`;
+          this.trades.push({ tick: t, text });
+          if (this.trades.length <= 3 || h32(t, 23, seed) % 3 === 0) this.note(`Feira de trocas: ${text}`, 'encontro');
+        }
+      }
+    }
+    // roda de histórias: à noite alguém da roda conta uma história (vai para o diário)
+    if (k % 6 === 1 && (h >= 18.5 || h < 0.5)) {
+      const ring = this.agents.filter(a => a.present && a.state === 'GATHER' && a.phase === 'boid');
+      if (ring.length >= 3 && h32(t, 31, seed) % 2 === 0) {
+        const a = ring[h32(t, 32, seed) % ring.length]!;
+        a.bubble = '...'; a.bubbleUntil = t + 60;
+        this.note(`Na roda da fogueira, ${a.name} contou a história ${TALES[h32(t, 33, seed) % TALES.length]}`, 'lenda');
+      }
+    }
+    // oficina: conserto pendente ganha alguém (lenhador primeiro) durante o dia
+    if (h >= 8 && h < 17.5) for (const r of this.repairs) {
+      if (r.done || this.agents.some(a => a.fix === r)) continue;
+      const crew = this.agents.filter(b => free(b));
+      const b = crew.find(c => PROFS[c.prof] === 'lenhador') ?? crew[h32(t, 41, seed) % Math.max(1, crew.length)];
+      if (!b) break;
+      b.fix = r; b.state = 'BUILD';
+      this.goNear(b, r.x, r.y, 2);
+    }
+  }
+  /** O que o morador leva para a feira de trocas: algo que juntou, ou o que o ofício faz. */
+  private offerOf(a: Agent): string {
+    const own = a.items.find(i => !i.includes(' (de ') && !i.includes('(troca') && !i.includes('dourado') && !i.includes('cristal'));
+    if (own) return own;
+    return ({ lenhador: 'uma colher de pau', pescador: 'um lambari', 'músico': 'uma canção nova', jardineiro: 'um maço de flores', explorador: 'um mapa rabiscado', minerador: 'uma pedra polida', agricultor: 'uma saca de trigo', padeiro: 'um pão', carteiro: 'um selo antigo' } as Record<string, string>)[PROFS[a.prof]] ?? 'uma flor';
+  }
+  /** Sopa do caldeirão da ágora ao meio-dia, com o que tiver no celeiro. */
+  private serveSoup(): void {
+    const s = this.stock, parts: string[] = [];
+    if (s.legumes >= 2) { s.legumes -= 2; parts.push('legumes da horta'); }
+    if (s.peixe >= 1) { s.peixe -= 1; parts.push('peixe'); }
+    if (s.ervas >= 1) { s.ervas -= 1; parts.push('ervas'); }
+    this.soupAt = this.tick;
+    this.note(parts.length >= 2 ? `Sopa no caldeirão da ágora: ${parts.join(', ')}, para quem chegar` : `O caldeirão saiu ralo hoje: falta${parts.length ? 'm' : 'm'} legumes no celeiro. Jardineiros, ao trabalho!`, 'evento');
+  }
+  /** Ceia na taverna às 19h30: pão, peixe e sopa do celeiro, e um músico de bardo. */
+  private serveSupper(): void {
+    const s = this.stock, menu: string[] = [];
+    if (s['pão'] >= 2) { const n = Math.min(6, s['pão']); s['pão'] -= n; menu.push('pão quente'); }
+    if (s.peixe >= 2) { const n = Math.min(5, s.peixe); s.peixe -= n; menu.push('peixe assado'); }
+    if (s.legumes >= 1) { s.legumes--; menu.push('sopa de legumes'); }
+    this.supperAt = this.tick;
+    const bards = this.agents.filter(a => a.present && PROFS[a.prof] === 'músico' && a.sickUntil <= this.tick);
+    const bard = bards.length ? bards[h32(this.tick, 51, this.terrain.seed) % bards.length]! : null;
+    this.note(`${menu.length ? `Ceia na taverna: ${menu.join(', ')}` : 'Ceia simples na taverna: o celeiro está vazio, cada um trouxe um pouco'}${bard ? `. ${bard.name} foi o bardo da noite com ${INSTRUMENTS[bard.instrument] === 'harpa' || INSTRUMENTS[bard.instrument] === 'flauta' || INSTRUMENTS[bard.instrument] === 'gaita' ? 'a' : 'o'} ${INSTRUMENTS[bard.instrument]}` : ''}`, 'evento');
+  }
+  /** O mercador troca o que traz por histórias e presentes da vila (nada de moeda). */
+  private merchantTrade(): void {
+    const seed = this.terrain.seed, d = Math.floor(this.genesis / DAY_MS);
+    const bring = MERCHANT_BRINGS[h32(d, 61, seed) % MERCHANT_BRINGS.length]!, take = MERCHANT_TAKES[h32(d, 62, seed) % MERCHANT_TAKES.length]!;
+    const pres = this.agents.filter(a => a.present && !a.inside);
+    if (!pres.length) return;
+    const who = pres[h32(d, 63, seed) % pres.length]!;
+    if (bring.startsWith('sementes') || bring.startsWith('mudas')) this.stock.sementes += 4;
+    const text = `O mercador ${this.merchant} deixou ${bring} no celeiro e levou ${take} contada por ${who.name}`;
+    this.trades.push({ tick: this.tick, text });
+    this.note(text, 'github');
+  }
+  /** Fim da tarde: alguém esquece a ferramenta na roça e um vizinho leva de volta ao galpão. */
+  private forgottenTool(): void {
+    const out = this.agents.filter(a => a.present && a.tool);
+    if (!out.length) return;
+    const a = out[h32(this.tick, 71, this.terrain.seed) % out.length]!;
+    const helpers = this.agents.filter(b => b !== a && b.present && !b.inside && Math.abs(b.home.x - a.home.x) < 50);
+    const b = helpers.length ? helpers[h32(this.tick, 72, this.terrain.seed) % helpers.length]! : null;
+    this.note(`${a.name} esqueceu ${a.tool} no caminho${b ? `, e ${b.name} levou de volta ao galpão de ferramentas` : ''}`, 'encontro');
+    a.tool = null; this.toolsOut = Math.max(0, this.toolsOut - 1);
+    if (b) this.favors.push({ tick: this.tick, from: b.name, to: a.name, what: 'devolver a ferramenta ao galpão' });
+  }
+  /** Depois da tempestade: um ou dois ficam resfriados e a oficina tem telhado para consertar. */
+  private afterStorm(): void {
+    const t = this.tick, seed = this.terrain.seed, pres = this.agents.filter(a => a.present && a.hut);
+    if (!pres.length) return;
+    const n = 1 + (h32(t, 81, seed) % 2);
+    for (let k = 0; k < n; k++) {
+      const a = pres[h32(t, 82 + k, seed) % pres.length]!;
+      if (a.sickUntil > t) continue;
+      a.sickUntil = t + 6 * TICKS_PER_HOUR;
+      this.note(`${a.name} pegou um resfriado na tempestade e ficou de cama`, 'clima');
+    }
+    const roof = pres[h32(t, 85, seed) % pres.length]!;
+    this.repairs.push({ x: roof.home.x - HOUSE_DX, y: roof.home.y + 1, what: `o telhado da casa de ${roof.name}, que a tempestade estragou`, done: false });
+  }
 
   /** Hash do estado inteiro, usado nos testes de determinismo. */
   stateHash(): number {
@@ -667,6 +852,7 @@ export class Simulation {
       instrument: fnv(name.toLowerCase() + '#inst') % INSTRUMENTS.length,
       pet: fnv(name.toLowerCase() + '#pet') % 3 === 0 || PET_GIFTS.has(name.toLowerCase()) ? { kind: fnv(name.toLowerCase() + '#petk') % PETS.length, name: PET_NAMES[fnv(name.toLowerCase() + '#petn') % PET_NAMES.length]! } : null,
       prof: profOf(name), owl: fnv(name.toLowerCase() + '#owl') % 4 === 0,
+      tool: null, favor: null, fix: null, sickUntil: 0, helped: 0,
     };
     a.home = this.pickHome(a, mate?.home);
     a.house = this.houseType(a);
@@ -810,6 +996,15 @@ export class Simulation {
     a.phase = 'go';
   }
 
+  /** Vai para uma célula livre perto de (x, y), escolhida pelo PRNG do morador. */
+  private goNear(a: Agent, x: number, y: number, r: number): void {
+    for (let k = 0; k < 16; k++) {
+      const tx = x + Math.floor(a.r() * (2 * r + 1)) - r, ty = y + Math.floor(a.r() * (r + 1));
+      if (tx > 0 && ty > 0 && tx < COLS && ty < ROWS && this.terrain.passable(ty * COLS + tx)) return this.goTo(a, tx, ty);
+    }
+    this.startWalk(a);
+  }
+
   private startWalk(a: Agent): void {
     a.state = 'WANDER';
     a.phase = 'walk';
@@ -863,10 +1058,22 @@ export class Simulation {
   /** Máquina de estados: pesos por temperamento, hora e clima, sorteados pelo PRNG do morador. */
   private decide(a: Agent): void {
     const h = hourAt(this.tick), night = isNight(h), wx = this.weather(), rain = wx.rain > 0.3, evening = h >= 18 && h < 22.5;
+    a.friend = null;
+    // de cama: resfriado depois da tempestade
+    if (a.sickUntil > this.tick && !a.inside) { a.state = 'SICK'; return this.goTo(a, a.home.x, a.home.y); }
+    // mutirão marcado: todo mundo vai para a obra
+    const callNow = this.calledAt();
+    if (callNow?.site && !a.inside) { a.state = 'BUILD'; a.fix = null; return this.goNear(a, callNow.site.x, callNow.site.y, 3); }
+    // ferramenta volta para o galpão quando vai dormir
+    if (a.tool && night) { a.tool = null; this.toolsOut = Math.max(0, this.toolsOut - 1); }
     const storm = wx.storm ? 1 : 0, fog = wx.fog > 0.35 ? 1 : 0, day = h >= 7 && h < 18;
     const thirsty = !!a.tree && this.tick - a.tree.lastWater > 1600;
     const prof = PROFS[a.prof], owl = a.owl ? 1 : 0, late = h >= 22 || h < 5, out = (1 - storm) * (rain ? 0.3 : 1), fair = this.isFair() ? 1 : 0;
-    const council = this.isCouncil() ? 1 : 0, party = this.isParty() ? 1 : 0, fire = this.fire, called = this.calledAt() ? 1 : 0;
+    const council = this.isCouncil() ? 1 : 0, party = this.isParty() ? 1 : 0, fire = this.fire, called = callNow ? 1 : 0;
+    // falta no celeiro puxa gente para esse trabalho
+    const lowFish = this.low('peixe') ? 1 : 0, lowWood = this.low('lenha') || !!this.projects.find(p => p.day === this.today + 1) ? 1 : 0, lowVeg = this.low('legumes') || this.low('ervas') ? 1 : 0;
+    const supper = h >= 19.5 && h < 21 ? 1 : 0, lunch = h >= 12 && h < 13 ? 1 : 0;
+    const seeds = this.agenda.some(e => e.kind === 'sementes' && this.tick >= e.from && this.tick < e.to) && (prof === 'jardineiro' || prof === 'agricultor') ? 1 : 0;
     const cave = this.terrain.landmarks.find(l => l.kind === 'caverna'), board = this.requests.some(q => q.state === 'open');
     const w: [State, number][] = [
       ['WANDER', (0.4 + a.traits.wander * 1.2) * (night ? 0.25 : 1) * (fog ? 0.5 : 1) * (storm ? 0.05 : 1)],
@@ -874,18 +1081,20 @@ export class Simulation {
       ['REST', (1.1 - a.traits.energy) * (night ? 0.8 : 0.25) + (night ? (owl ? 0.5 : 3.2) : 0) + (rain ? 1 : 0) + storm * 8],
       ['VISIT', a.traits.social * 0.9 * (night ? 0.15 : 1) * (storm ? 0.05 : 1)],
       ['GATHER', (0.25 + a.traits.social) * (evening ? 2.4 : late && owl ? 2 : 0.35) * (rain ? 0.2 : 1) * (1 - storm)],
-      ['FISH', (prof === 'pescador' ? 0.8 : 0.15) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1)],
-      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day || council || party ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm) * (fair ? 2.5 : 1) * (party ? 3 : 1) + council * 9 * (1 - storm) + called * 60],
+      ['FISH', (prof === 'pescador' ? 0.8 : 0.15 + lowFish * 0.25) * (rain ? 0.2 : 1) * (1 - storm) * (fog ? 1.6 : 1) * (lowFish ? 2.2 : 1)],
+      ['TAVERN', supper * (0.5 + a.traits.social * 1.5 + (prof === 'músico' ? 2 : 0)) * (1 - storm)],
+      ['SIGHT', seeds * 6 * out],
+      ['AGORA', (0.3 + a.traits.social * 0.6 + a.traits.wander * 0.4) * (day || council || party ? 1 : 0.08) * (rain ? 0.25 : 1) * (1 - storm) * (fair ? 2.5 : 1) * (party ? 3 : 1) + council * 9 * (1 - storm) + called * 60 + lunch * 1.6 * out],
       ['MINE', prof === 'minerador' && day && cave ? 1.1 * (1 - storm) : 0],
       ['TASK', board && day ? (0.12 + a.traits.social * 0.2) * out : 0],
       ['BUCKET', fire && Math.abs(fire.x - a.x) < 90 && Math.abs(fire.y - a.y) < 45 ? 40 : 0],
-      ['CHOP', prof === 'lenhador' && day ? 0.9 * out : 0],
+      ['CHOP', day ? (prof === 'lenhador' ? 0.9 + lowWood * 0.6 : lowWood * 0.3) * out : 0],
       ['PLAY', prof === 'músico' && (day || evening) ? 0.8 * out : 0],
-      ['GARDEN', (prof === 'jardineiro' ? 0.9 : this.thirstyNear(a) ? 0.35 : 0) * (day ? 1 : 0) * (1 - storm)],
+      ['GARDEN', ((prof === 'jardineiro' ? 0.9 : this.thirstyNear(a) ? 0.35 : 0) + lowVeg * 0.35) * (day ? 1 : 0) * (1 - storm)],
       ['SIGHT', day && this.terrain.landmarks.length ? (0.25 + a.traits.wander * 0.5) * (prof === 'explorador' ? 3 : 1) * out : 0],
       ['FARM', prof === 'agricultor' && day && this.field ? 1.4 * out : 0],
       ['SELL', prof === 'agricultor' && this.isMarketDay() && h >= 9 && h < 12.5 && this.structures.some(s => s.kind === 'mercado' && s.built) ? 4 * (1 - storm) : 0],
-      ['BAKE', prof === 'padeiro' && h >= 4.5 && h < 9 && this.wheatStock > 0 ? 5 : 0],
+      ['BAKE', prof === 'padeiro' && h >= 4.5 && h < 9 && this.wheatStock > 2 && this.stock['pão'] < 20 ? 5 : 0],
       ['MAIL', prof === 'carteiro' && day ? 1.6 * out : 0],
       ['CAMP', this.forks.length && (day || evening) ? (0.12 + a.traits.social * 0.2 + a.traits.wander * 0.2) * out * (evening ? 1.6 : 1) : 0],
       ['BOAT', prof === 'pescador' && day && !rain && this.season !== 2 && this.structures.some(s => s.kind === 'píer' && s.built) ? 0.5 * out : 0],
@@ -894,7 +1103,12 @@ export class Simulation {
     let st: State = 'REST';
     for (const [k, v] of w) { pick -= v; if (pick <= 0) { st = k; break; } }
     a.state = st;
-    a.friend = null;
+    if (!a.tool && (st === 'CHOP' || st === 'FARM' || st === 'GARDEN' || st === 'MINE') && this.toolsOut < this.toolsTotal) {
+      a.tool = st === 'CHOP' ? 'o machado' : st === 'FARM' ? 'a enxada' : st === 'GARDEN' ? 'o regador' : 'a picareta';
+      this.toolsOut++;
+    }
+    if (st === 'TAVERN') { const tv = this.building('taverna'); if (tv) return this.goNear(a, tv.x + 1, tv.y + 1, 3); st = 'GATHER'; a.state = st; }
+    if (st === 'SIGHT' && seeds) { const cl = this.building('celeiro'); if (cl) { a.sight = 'banco de sementes'; return this.goNear(a, cl.x + 1, cl.y + 1, 2); } }
     if (st === 'WANDER') return this.startWalk(a);
     if (st === 'WATER' || st === 'REST') return this.goTo(a, a.home.x, a.home.y);
     if (st === 'FISH') {
@@ -1064,7 +1278,7 @@ export class Simulation {
       if (a.state === 'AGORA') { a.phase = 'boid'; a.boidLeft = 50 + Math.floor(a.r() * 110); return; }
       a.phase = 'stay';
       const night = isNight(hourAt(tick));
-      if (a.state === 'CHOP') { a.wait = 60 + Math.floor(a.r() * 80); a.bubble = 'tok'; a.bubbleUntil = tick + a.wait; return; }
+      if (a.state === 'CHOP') { a.wait = 60 + Math.floor(a.r() * 80); a.bubble = 'tok'; a.bubbleUntil = tick + a.wait; if (a.r() < 0.3 && this.stock.lenha < 200) this.stock.lenha++; return; }
       if (a.state === 'PLAY') { a.wait = 120 + Math.floor(a.r() * 160); a.bubble = '♪'; a.bubbleUntil = tick + a.wait; return; }
       if (a.state === 'GARDEN') {
         a.wait = 30 + Math.floor(a.r() * 30); a.bubble = '¨'; a.bubbleUntil = tick + a.wait;
@@ -1073,6 +1287,8 @@ export class Simulation {
         // planta uma flor do lado
         const fi = a.y * COLS + a.x + (a.r() < 0.5 ? -1 : 1);
         if (this.terrain.T[fi] === Tile.Grass && !this.flower[fi]) { this.flower[fi] = 1 + Math.floor(a.r() * FLOWERS.length); this.groundVersion++; }
+        const crop = a.r();
+        if (crop < 0.07 && this.stock.legumes < 60) this.stock.legumes++; else if (crop < 0.2 && this.stock.ervas < 30) this.stock.ervas++;
         if (a.friend && (t && this.tick - t.lastWater > 1000 ? a.r() < 0.5 : a.r() < 0.04)) this.note(`${a.name} regou a árvore${t && this.tick - t.lastWater > 1000 ? ' com sede' : ''} de ${a.friend.name}`, 'trabalho');
         return;
       }
@@ -1090,13 +1306,13 @@ export class Simulation {
         return;
       }
       if (a.state === 'SELL') {
-        a.wait = 160 + Math.floor(a.r() * 120); a.bubble = '$'; a.bubbleUntil = tick + 20;
-        if (!this.soldToday) { this.soldToday = true; this.note(`${a.name} montou a banca de trigo no mercado`, 'evento'); }
+        a.wait = 160 + Math.floor(a.r() * 120); a.bubble = '⇄'; a.bubbleUntil = tick + 20;
+        if (!this.soldToday) { this.soldToday = true; this.note(`${a.name} montou a banca de trocas no mercado: trigo por peixe, legumes ou uma boa história`, 'evento'); }
         return;
       }
       if (a.state === 'BAKE') {
         a.wait = 90 + Math.floor(a.r() * 60); a.bubble = 'pão'; a.bubbleUntil = tick + 30;
-        if (this.wheatStock > 0) { this.wheatStock--; for (let k = 0; k < 3 && a.items.length < 8; k++) a.items.push('um pão'); }
+        if (this.wheatStock > 0) { this.wheatStock--; this.stock['pão'] = Math.min(40, this.stock['pão'] + 3); if (a.items.length < 8) a.items.push('um pão'); }
         if (!this.bakedToday) { this.bakedToday = true; this.note(`Cheiro de pão quente: ${a.name} acendeu o forno`, 'trabalho'); }
         return;
       }
@@ -1105,15 +1321,29 @@ export class Simulation {
         const b = a.friend;
         if (b) {
           const pals = b.friends.filter(c => c.present && c !== a);
-          if (pals.length) {
+          if (pals.length && a.r() < 0.4) {
             const from = pals[Math.floor(a.r() * pals.length)]!;
-            this.letters.push({ tick, from: from.name, to: b.name });
-            if (a.r() < 0.12) this.note(`${a.name} entregou uma carta de ${from.name} para ${b.name}`, 'encontro');
+            const gift = a.r() < 0.35 ? ['um pão', 'uma flor seca', 'um desenho', 'um punhado de sementes', 'uma pedrinha bonita', 'uma receita'][Math.floor(a.r() * 6)]! : undefined;
+            this.letters.push({ tick, from: from.name, to: b.name, gift });
+            if (gift && b.items.length < 12) b.items.push(`${gift} (de ${from.name}, pelo correio)`);
+            if (a.r() < (gift ? 0.15 : 0.08)) this.note(`${a.name} entregou uma carta de ${from.name} para ${b.name}${gift ? `, com ${gift} dentro` : ''}`, 'encontro');
           }
         }
         return;
       }
       if (a.state === 'BOAT') { a.wait = 200 + Math.floor(a.r() * 300); return; }
+      if (a.state === 'SICK') { a.wait = 240 + Math.floor(a.r() * 200); a.bubble = '~'; a.bubbleUntil = tick + a.wait; return; }
+      if (a.state === 'TAVERN') {
+        a.wait = 120 + Math.floor(a.r() * 160);
+        a.bubble = PROFS[a.prof] === 'músico' ? '♪' : a.r() < 0.5 ? 'o' : '♥'; a.bubbleUntil = tick + 30;
+        return;
+      }
+      if (a.state === 'BUILD') {
+        a.wait = 60 + Math.floor(a.r() * 80); a.bubble = a.r() < 0.5 ? 'tok' : '#'; a.bubbleUntil = tick + a.wait;
+        const fx = a.fix;
+        if (fx && !fx.done && Math.abs(fx.x - a.x) < 5 && Math.abs(fx.y - a.y) < 4) { fx.done = true; a.fix = null; this.note(`Oficina: ${a.name} consertou ${fx.what}`, 'trabalho'); }
+        return;
+      }
       if (a.state === 'MINE') { a.inside = true; a.wait = 140 + Math.floor(a.r() * 160); a.bubble = ''; return; }
       if (a.state === 'TASK') {
         a.wait = 24 + Math.floor(a.r() * 20); a.bubble = '!'; a.bubbleUntil = tick + a.wait;
@@ -1127,6 +1357,12 @@ export class Simulation {
         return;
       }
       if (a.state === 'SIGHT' && a.sight === 'floresta densa') { a.inside = true; a.wait = 200 + Math.floor(a.r() * 200); a.bubble = ''; return; }
+      if (a.state === 'SIGHT' && a.sight === 'banco de sementes') {
+        a.wait = 50 + Math.floor(a.r() * 40); a.bubble = '¨'; a.bubbleUntil = tick + 20;
+        const kinds = ['abóbora', 'girassol', 'feijão', 'alecrim', 'milho', 'melancia', 'manjericão', 'tomate'], give = kinds[Math.floor(a.r() * kinds.length)]!, take = kinds[Math.floor(a.r() * kinds.length)]!;
+        if (give !== take && a.r() < 0.5) this.note(`No banco de sementes, ${a.name} deixou sementes de ${give} e levou de ${take}`, 'trabalho');
+        return;
+      }
       if (a.state === 'SIGHT') {
         a.wait = 60 + Math.floor(a.r() * 90); a.bubble = a.sight === 'moinho' ? '~' : a.sight === 'torre de vigia' ? '!' : '*'; a.bubbleUntil = tick + 12;
         if (a.r() < 0.08) this.note(`${a.name} foi até ${a.sight === 'moinho' ? 'o moinho' : a.sight === 'ponte' ? 'a ponte' : a.sight === 'barraca' ? 'o acampamento' : `o ${a.sight === 'torre de vigia' ? 'alto da torre de vigia' : a.sight}`}`, 'encontro');
@@ -1136,6 +1372,16 @@ export class Simulation {
       if (a.state === 'WATER') { a.bubble = '¨'; a.bubbleUntil = tick + 14; }
       if (a.state === 'REST' && night) { a.bubble = 'z'; a.bubbleUntil = tick + a.wait; }
       const f = a.friend;
+      if (a.state === 'VISIT' && a.favor) {
+        const fv = a.favor; a.favor = null;
+        a.helped++; a.bubble = fv.what.startsWith('sopa') ? 'sopa' : '♥'; a.bubbleUntil = tick + 30; fv.to.bubble = '♥'; fv.to.bubbleUntil = tick + 30;
+        if (fv.what.startsWith('sopa')) fv.to.sickUntil = Math.max(tick + 300, fv.to.sickUntil - 2 * TICKS_PER_HOUR);
+        if (fv.what.startsWith('regar') && fv.to.tree) fv.to.tree.lastWater = tick;
+        if (fv.what.startsWith('lenha')) this.stock.lenha = Math.max(0, this.stock.lenha - 1);
+        this.favors.push({ tick, from: a.name, to: fv.to.name, what: fv.what });
+        this.note(`${fv.to.name} agradeceu ${a.name} por ${fv.what}`, 'amizade');
+        return;
+      }
       if (a.state === 'VISIT' && f && Math.abs(f.x - a.x) < 4 && Math.abs(f.y - a.y) < 3) {
         const gift = a.r() < 0.4;
         a.bubble = gift ? 'gift' : '♥'; a.bubbleUntil = tick + a.wait; f.bubble = '♥'; f.bubbleUntil = tick + a.wait;
@@ -1173,12 +1419,14 @@ export class Simulation {
     }
     if (a.state === 'MINE' && a.inside) {
       a.inside = false;
+      if (a.r() < 0.5 && this.stock.pedra < 200) this.stock.pedra++;
       if (a.r() < 0.5) { a.crystals++; if (a.items.length < 12) a.items.push('um cristal'); a.bubble = '◆'; a.bubbleUntil = tick + 16; if (a.crystals === 1 || a.r() < 0.1) this.note(`${a.name} saiu da caverna com um cristal`, 'trabalho'); }
     }
     if (a.state === 'WATER' && a.tree) a.tree.lastWater = tick;
     if ((a.state === 'FISH' || a.state === 'BOAT') && a.r() < (PROFS[a.prof] === 'pescador' ? 0.6 : 0.3)) {
       const roll = a.r(), fish = roll < 0.04 ? 'um peixe dourado' : roll < 0.1 ? 'uma bota velha' : ['um lambari', 'uma traíra', 'um bagre'][Math.floor(a.r() * 3)]!;
       a.bubble = fish === 'uma bota velha' ? '?' : '><>'; a.bubbleUntil = tick + 10;
+      if (fish !== 'uma bota velha' && fish !== 'um peixe dourado' && a.r() < 0.04 && this.stock.peixe < 40) this.stock.peixe++;
       if (fish === 'um peixe dourado' || fish === 'uma bota velha' || a.r() < 0.08) this.note(`${a.name} pescou ${fish}`, 'pesca');
       if ((fish === 'um peixe dourado' && a.items.length < 12) || (a.r() < 0.1 && a.items.length < 8)) a.items.push(fish);
     }

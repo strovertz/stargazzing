@@ -4,7 +4,7 @@ import type { Hat } from './constants';
 
 export interface LogEntry { tick: number; text: string; kind: 'chegada' | 'clima' | 'obra' | 'pesca' | 'evento' | 'céu' | 'encontro' | 'trabalho' | 'lenda' | 'amizade' | 'github' }
 
-export type State = 'CAMP' | 'FARM' | 'SELL' | 'BAKE' | 'MAIL' | 'GAME' | 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT' | 'MINE' | 'BUCKET' | 'TASK';
+export type State = 'TAVERN' | 'BUILD' | 'SICK' | 'CAMP' | 'FARM' | 'SELL' | 'BAKE' | 'MAIL' | 'GAME' | 'ARRIVE' | 'PLANT' | 'WANDER' | 'WATER' | 'REST' | 'VISIT' | 'GATHER' | 'FISH' | 'CHAT' | 'AGORA' | 'CHOP' | 'PLAY' | 'GARDEN' | 'BOAT' | 'SIGHT' | 'MINE' | 'BUCKET' | 'TASK';
 export type Phase = 'go' | 'stay' | 'walk' | 'boid';
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; hat: Hat; hatc: string; beard?: boolean }
@@ -75,6 +75,16 @@ export interface Agent {
   items: string[];
   /** coruja: fica acordado até tarde */
   owl: boolean;
+  /** ferramenta emprestada do galpão (volta à noite) */
+  tool: string | null;
+  /** favor a caminho: para quem e o quê */
+  favor: { to: Agent; what: string } | null;
+  /** conserto da oficina que está indo fazer */
+  fix: { x: number; y: number; what: string; done: boolean } | null;
+  /** de cama até este tick (resfriado depois da tempestade) */
+  sickUntil: number;
+  /** favores feitos hoje */
+  helped: number;
 }
 
 /** Uma entrada de public/world.json. Dados reais usam starredAt; a demo usa daysAgo ou todayHour. */

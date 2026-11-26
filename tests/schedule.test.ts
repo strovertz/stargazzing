@@ -16,7 +16,7 @@ describe('agenda', () => {
         s.runUntil(e.from + TICKS_PER_HOUR / 4);
         const p = s.agents.filter(a => a.present);
         if (!p.length) continue;
-        expect(p.filter(a => a.state === 'AGORA').length / p.length).toBeGreaterThan(0.6);
+        expect(p.filter(a => a.state === (e.site ? 'BUILD' : 'AGORA')).length / p.length).toBeGreaterThan(0.6);
         checked++;
       }
     }

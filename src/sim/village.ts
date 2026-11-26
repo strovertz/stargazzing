@@ -16,7 +16,7 @@ export const STARS_PER_COLUMN = 2;
 const free = (t: Terrain, i: number) => (t.T[i] === Tile.Grass || t.T[i] === Tile.Forest || t.T[i] === Tile.Floor) && !t.block[i] && t.comp[i];
 
 /** Procura em espiral a partir de (x, y) um lugar onde todas as células `w` x 1 estejam livres. */
-function near(t: Terrain, x: number, y: number, w: number): [number, number] | null {
+export function near(t: Terrain, x: number, y: number, w: number): [number, number] | null {
   for (let r = 0; r < 12; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
     const px = x + dx, py = y + dy;

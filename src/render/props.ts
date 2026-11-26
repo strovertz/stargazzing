@@ -256,3 +256,60 @@ export function houseVariant(type: number, hue: number, lit: boolean, tall: bool
   };
   return artSprite(`casa|${type}|${hue}|${lit}|${tall}`, rows, pal, (c, i, j) => (c === 'R' ? (j % 2 ? '=' : '^') : c === 'S' ? ((i + j) % 2 ? '#' : '=') : c === 'w' ? '#' : c === 'd' ? (j % 2 ? 'n' : '|') : c === 'p' ? '|' : c === 'x' ? (j > 6 ? '|' : '=') : c === 't' ? '|' : c === 'h' ? 'H' : c === 'l' ? ['"', '&', '%'][(i + j) % 3]! : c === 'f' || c === 'F' ? (i < 4 ? '/' : i > 4 ? '\\' : '|') : c === 'c' ? '|' : c), cw, ch, dpr);
 }
+
+/* ---------- economia comunitária: celeiro, taverna, galpão, oficina e obras de mutirão ---------- */
+const COMMON: Pal = { ...STONE, W: ['#8a5a32', '#4a2e18'], w: ['#6a4426', '#2e1c0e'], d: ['#3a2818', '#1e140c'], h: ['#e8d9a0', '#8a6a30'], l: ['#ffd27a', '#5a3a18'], L: ['#3a3020', '#1a140c'], c: ['#9a9a9a', '#3a3a3a'], k: ['#2a2a2a', '#111'], t: ['#c43c3c', '#6a1a14'] };
+const roofCh = (i: number, mid: number) => (i < mid ? '/' : i > mid ? '\\' : '^');
+
+/** Celeiro comum: telhado vermelho de duas águas, porta larga e feno na janela. */
+export function granarySprite(cw: number, ch: number, dpr: number) {
+  const rows = ['     tt     ', '    tttt    ', '   tttttt   ', '  tttttttt  ', ' tttttttttt ', 'tttttttttttt', ' WhhWWWWhhW ', ' WWWWddWWWW ', ' WWWddddWWW ', ' WWWddddWWW ', 'mWWWddddWWWm'];
+  return artSprite('celeiro', rows, COMMON, (c, i) => (c === 't' ? roofCh(i, 6) : c === 'h' ? '"' : c === 'd' ? 'X' : c === 'm' ? '"' : '|'), cw, ch, dpr);
+}
+/** Taverna: placa pendurada, janelas acesas à noite e chaminé. */
+export function tavernSprite(lit: boolean, cw: number, ch: number, dpr: number) {
+  const rows = ['        cc  ', '   RRRRRcc  ', '  RRRRRRRRR ', ' RRRRRRRRRRR', 'RRRRRRRRRRRR', ' WWWWWWWWWW ', ' WllWWWWllW ', ' WWWWddWWWW ', 'hWWWWddWWWW ', 'hWWWWddWWWW '];
+  const pal: Pal = { ...COMMON, R: ['#764028', '#3e2116'], l: lit ? ['#ffd27a', '#7a5020'] : ['#3a3020', '#1a140c'], h: ['#f2c14e', '#5a3a18'] };
+  return artSprite(`taverna|${lit}`, rows, pal, (c, i) => (c === 'R' ? roofCh(i, 6) : c === 'c' ? '#' : c === 'l' ? '+' : c === 'd' ? '#' : c === 'h' ? '@' : '|'), cw, ch, dpr);
+}
+/** Galpão de ferramentas: telhado baixo e ferramentas penduradas na parede. */
+export function shedSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['  wwwwwww ', ' wwwwwwwww', ' W c k c W', ' W k c k W', ' W ddddd W', 'mWWWWWWWWm'];
+  return artSprite('galpão', rows, COMMON, (c, i) => (c === 'w' ? (i < 5 ? '/' : '\\') : c === 'c' ? 'T' : c === 'k' ? 'Y' : c === 'd' ? '=' : c === 'm' ? '"' : '|'), cw, ch, dpr);
+}
+/** Oficina: bancada com serrote e tábuas encostadas. */
+export function workshopSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['  RRRRRR  ', ' RRRRRRRR ', 'W        W', 'W  ccc   W', 'WWWWWWWW W', 'W ww  ww W'];
+  const pal: Pal = { ...COMMON, R: ['#5a442a', '#2f2216'] };
+  return artSprite('oficina', rows, pal, (c, i) => (c === 'R' ? roofCh(i, 5) : c === 'c' ? '~' : c === 'w' ? '#' : '|'), cw, ch, dpr);
+}
+/** Forno comunitário de barro com boca acesa. */
+export function ovenSprite(lit: boolean, cw: number, ch: number, dpr: number) {
+  const rows = ['   SSS   ', '  SSSSS  ', ' SSSSSSS ', ' SSSllSS ', 'SSSSllSSS', 'mSSSSSSSm'];
+  const pal: Pal = { ...COMMON, S: ['#c08050', '#6a3a1e'], l: lit ? ['#ffb040', '#a83a10'] : ['#2a1a10', '#140c06'] };
+  return artSprite(`forno|${lit}`, rows, pal, (c) => (c === 'l' ? '*' : c === 'm' ? '"' : 'o'), cw, ch, dpr);
+}
+/** Farol listrado na beira do lago. */
+export function lighthouseSprite(lit: boolean, cw: number, ch: number, dpr: number) {
+  const rows = ['  rr  ', ' llll ', ' WWWW ', ' tWWt ', ' tttt ', ' WWWW ', ' tttt ', 'WWWWWW', 'tttttt', 'WWWWWW', 'ttdttt', 'SSSSSS'];
+  const pal: Pal = { ...COMMON, W: ['#f4efe4', '#c8c0b0'], t: ['#c43c3c', '#7a1a14'], l: lit ? ['#fff4c0', '#d8a020'] : ['#4a4a40', '#2a2a24'], r: ['#3a3a40', '#1a1a1e'] };
+  return artSprite(`farol|${lit}`, rows, pal, (c) => (c === 'l' ? '*' : c === 'r' ? '^' : c === 'd' ? '#' : c === 'S' ? '=' : '|'), cw, ch, dpr);
+}
+/** Coreto: telhado octogonal sobre colunas, para os músicos. */
+export function bandstandSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['    RR    ', '  RRRRRR  ', ' RRRRRRRR ', 'RRRRRRRRRR', ' W  W  W  ', ' W  W  W  ', ' W  W  W  ', 'SSSSSSSSSS'];
+  const pal: Pal = { ...COMMON, R: ['#2f7f6a', '#174a3c'], W: ['#f4efe4'] };
+  return artSprite('coreto', rows, pal, (c, i) => (c === 'R' ? roofCh(i, 5) : c === 'W' ? '|' : '='), cw, ch, dpr);
+}
+/** Terreno marcado para a próxima obra: estacas, corda e plaquinha. */
+export function siteSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['   hhh   ', '   h h   ', 'w   w   w', 'w---w---w', 'w   w   w'];
+  const pal: Pal = { ...COMMON, h: ['#e8d9a0', '#5a3a18'], '-': ['#c8b080'] };
+  return artSprite('terreno', rows, pal, (c) => (c === 'w' ? '|' : c === 'h' ? '=' : '-'), cw, ch, dpr);
+}
+/** Andaime do mutirão em andamento. */
+export function scaffoldSprite(cw: number, ch: number, dpr: number) {
+  const rows = ['w=w=w=w=w', 'wX wX wXw', 'w=w=w=w=w', 'w Xw Xw w', 'w=w=w=w=w', 'pppw wppp'];
+  const pal: Pal = { ...COMMON, '=': ['#a07040'], X: ['#6a4426'], p: ['#8c8676', '#4a4840'] };
+  return artSprite('andaime', rows, pal, (c, i) => (c === 'w' ? '|' : c === '=' ? '=' : c === 'X' ? (i % 2 ? '/' : '\\') : '#'), cw, ch, dpr);
+}

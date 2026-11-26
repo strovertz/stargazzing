@@ -15,7 +15,8 @@ import { Timelapse } from './ui/timelapse';
 import { HouseView } from './ui/house';
 import { Dialogue } from './ui/dialogue';
 import { BoardView } from './ui/board';
-import { achievementsOf, boardNews, firstPerson, moodOf, todayOf } from './sim/talk';
+import { achievementsOf, boardCount, firstPerson, moodOf, todayOf } from './sim/talk';
+import { Visitor } from './ui/visitor';
 import { BRIDGE_AT } from './sim/simulation';
 import { fnv } from './core/rng';
 import { encode, restore } from './sim/snapshot';
@@ -25,7 +26,7 @@ import { Play, treasureFor } from './ui/play';
 import { highlightsSince, nextUp, renderAgenda, renderHistory, renderWeatherStrip } from './ui/chronicle';
 import { applyA11y, describeScene, loadA11y, PALETTES } from './ui/a11y';
 
-const STATE_PT: Record<Agent['state'], string> = { ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama', FARM: 'cuidando do trigo', SELL: 'vendendo na banca', BAKE: 'assando pão', MAIL: 'entregando cartas', CAMP: 'no acampamento' };
+const STATE_PT: Record<Agent['state'], string> = { TAVERN: 'na ceia da taverna', BUILD: 'no mutirão', SICK: 'de cama, resfriado', ARRIVE: 'chegando', PLANT: 'plantando a árvore', WANDER: 'passeando', WATER: 'regando a árvore', REST: 'descansando', VISIT: 'visitando', GATHER: 'na roda da fogueira', FISH: 'Pescando um poquin...', CHAT: 'conversando', AGORA: 'passeando pela ágora', CHOP: 'cortando lenha', PLAY: 'tocando alaúde na ágora', GARDEN: 'cuidando do jardim', BOAT: 'remando no lago', SIGHT: 'visitando um marco', MINE: 'minerando na caverna', BUCKET: 'no mutirão contra o fogo', TASK: 'lendo o quadro de pedidos', GAME: 'jogando dama', FARM: 'cuidando do trigo', SELL: 'trocando na banca', BAKE: 'assando pão', MAIL: 'entregando cartas', CAMP: 'no acampamento' };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let world: WorldFile;
@@ -130,7 +131,11 @@ function renderCard(): void {
   noteEl.className = 'bio note'; noteEl.textContent = note ? `Recado na porta: "${note}"` : '';
   // diário pessoal: as últimas coisas do dia, contadas pelo próprio morador
   const mine = todayOf(sim, a, 5).map(t => firstPerson(a, t));
-  for (const l of sim.letters.filter(l => l.to === a.name).slice(-2)) mine.push(`Recebi uma carta de ${l.from}`);
+  for (const l of sim.letters.filter(l => l.to === a.name && l.tick <= sim.tick).slice(-2)) mine.push(l.gift ? `Recebi uma carta de ${l.from} com ${l.gift} dentro` : `Recebi uma carta de ${l.from}`);
+  for (const f of sim.favors.filter(f => f.to === a.name).slice(-1)) mine.push(`${f.from} me ajudou: ${f.what}`);
+  if (a.helped) mine.push(`Ajudei ${a.helped} vizinho${a.helped > 1 ? 's' : ''} hoje`);
+  if (a.tool) mine.push(`Peguei ${a.tool} emprestado no galpão`);
+  if (a.sickUntil > sim.tick) mine.unshift('Tô de cama com um resfriado da tempestade');
   const diary = document.createElement('div');
   if (mine.length) {
     diary.className = 'pdiary';
@@ -276,7 +281,7 @@ function checkpoint(): void {
   if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 4000 }); else setTimeout(run, 500);
 }
 
-let lastScene = 0, lastUi = 0, lastMini = 0, lastFrame = 0, lastSound = 0;
+let lastBoard = 0, lastScene = 0, lastUi = 0, lastMini = 0, lastFrame = 0, lastSound = 0;
 const amb = new Ambience();
 
 /** Dados públicos do GitHub de cada morador, buscados no deploy (opcional). */
@@ -311,7 +316,8 @@ function drawMoon(ph: number, eclipse = false): void {
 let diaryKey = '', wxKey = 0;
 function renderDiary(): void {
   if (!$('diaryDrawer').classList.contains('open')) return;
-  const n = sim.stars, key = `${sim.log.length}|${n}|${sim.restored}`;
+  const local = visitor.entries(sim.genesis);
+  const n = sim.stars, key = `${sim.log.length}|${n}|${sim.restored}|${local.length}`;
   if (key === diaryKey) return;
   diaryKey = key;
   const ft = (t: number) => fmt(sim.genesis + t * TICK_MS);
@@ -346,7 +352,7 @@ function renderDiary(): void {
   b.textContent = 'Colunas da ágora'; st.textContent = `${intact} de ${total} em pé · 1 a cada ${STARS_PER_COLUMN} stars`;
   li.append(b, st); works.append(li);
   const ol = $('diary'); ol.textContent = '';
-  const items = sim.log.slice(-120).reverse();
+  const items = [...sim.log.slice(-120), ...local.map(e => ({ tick: Math.floor((e.ms - sim.genesis) / TICK_MS), text: `✦ ${e.text}` }))].sort((p, q) => q.tick - p.tick);
   if (!items.length) { const e = document.createElement('li'); e.textContent = 'Nada aconteceu ainda hoje.'; ol.append(e); }
   for (const e of items) {
     const li2 = document.createElement('li'), t = document.createElement('time'), sp = document.createElement('span');
@@ -401,7 +407,7 @@ function loop(now: number): void {
     renderer.drawActors(tf, selected, hovered);
     tuneQuality(performance.now() - t0, now);
     if (now - lastMini > 100) { renderer.drawMini(selected, now); lastMini = now; }
-    if (now - lastUi > 1000) { gameTick(tf); renderer.boardPapers = boardNews(sim).count; renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
+    if (now - lastUi > 1000) { gameTick(tf); renderer.boardPapers = boardCount(sim); if (now - lastBoard > 5000) { board.refresh(); lastBoard = now; } renderStatus(); renderPlayers(); renderDiary(); lastUi = now; }
     if (amb.on && now - lastSound > 200) { updateSound(ts); lastSound = now; }
   }
   requestAnimationFrame(loop);
@@ -467,7 +473,8 @@ function describe(): void {
 /** Avisos curtos no canto da tela (figurinha nova, tesouro, desejo) */
 const toasts: string[] = [];
 let toastBusy = false, toastSeq = 0;
-function toast(text: string): void {
+function toast(text: string, now = false): void {
+  if (now) { toasts.length = 0; toastSeq++; toastBusy = false; }
   toasts.push(text);
   if (toastBusy) return;
   const next = () => {
@@ -494,6 +501,10 @@ const play = new Play(toast);
 function gameTick(tf: number): void {
   if (timelapse.on) return;
   play.check(sim);
+  const pl = visitor.plant();
+  renderer.localPlant = pl ? { x: pl.x, y: pl.y, stage: visitor.plantStage() } : null;
+  const reader = visitor.readAtFire(sim, hourAt(sim.tick));
+  if (reader) { toast(`Na roda da fogueira, ${reader.name} leu o seu bilhete em voz alta ✦`); if (!follow) { renderer.cam = { x: reader.x, y: reader.y }; renderer.clampCam(); } diaryKey = ''; }
   $('wish').hidden = !play.canWish(sim, tf) || document.body.classList.contains('embed');
   play.markVisit(Date.now());
 }
@@ -509,7 +520,11 @@ function welcomeBack(): void {
 const timelapse = new Timelapse($('timelapse'));
 const houseView = new HouseView($('houseView'));
 const dialogue = new Dialogue($('dialogue'));
-const board = new BoardView($('board'));
+const visitor = new Visitor(toast);
+const board = new BoardView($('board'), visitor);
+/** plantar: o próximo clique num lugar de grama vira a plantinha do visitante */
+let plantMode = false;
+board.onPlant = () => { plantMode = true; $('fg').classList.add('planting'); toast('Clique num lugar de grama para plantar sua semente (Esc cancela)', true); };
 
 /** Modo foto: redesenha sem nomes nem balões, junta chão e atores e baixa um PNG com legenda. */
 function photo(): void {
@@ -564,6 +579,7 @@ function bind(): void {
   const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
   let kq: string[] = [];
   addEventListener('keydown', e => {
+    if (e.key === 'Escape' && plantMode) { plantMode = false; $('fg').classList.remove('planting'); }
     if (e.key === 'Escape') { if (vitrineOn) vitrine(false); openDrawer(''); timelapse.stop(); houseView.close(); dialogue.close(); board.close(); }
     if (dialogue.open && (e.key === ' ' || e.key === 'Enter') && (e.target as HTMLElement).tagName !== 'BUTTON') { e.preventDefault(); dialogue.advance(); return; }
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
@@ -631,6 +647,12 @@ function bind(): void {
   });
   fg.addEventListener('pointerup', e => {
     if (drag && !drag.moved) {
+      if (plantMode) {
+        const c = renderer.cellAt(e.offsetX, e.offsetY);
+        if (visitor.setPlant(sim, c.x, c.y)) { plantMode = false; fg.classList.remove('planting'); renderer.localPlant = { x: c.x, y: c.y, stage: 0 }; toast('Semente plantada! Volte nos próximos dias para ver crescer.', true); }
+        else toast('Ali não dá: escolha um lugar de grama livre.', true);
+        drag = null; return;
+      }
       if (renderer.treasureAt(e.offsetX, e.offsetY)) { play.dig(sim); renderer.treasure = null; drag = null; return; }
       const a = renderer.agentAt(e.offsetX, e.offsetY), h = a ? null : renderer.houseAt(e.offsetX, e.offsetY);
       if (!a && !h && renderer.boardAt(e.offsetX, e.offsetY)) { board.show(sim); drag = null; return; }
