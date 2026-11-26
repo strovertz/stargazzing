@@ -1,15 +1,12 @@
 import type { Simulation } from '../sim/simulation';
 import { boardNews } from '../sim/talk';
-import { OFFERINGS, type Visitor } from './visitor';
 
-/** Quadro de anúncios da ágora: papéis pregados com as notícias do dia e o cantinho do visitante. */
+/** Quadro de anúncios da ágora: papéis pregados com as notícias do dia. */
 export class BoardView {
   private readonly body: HTMLElement;
   private key = '';
   private sim: Simulation | null = null;
-  /** ações do visitante: o main decide o que fazer (plantar pede um clique no mapa) */
-  onPlant: () => void = () => {};
-  constructor(private readonly root: HTMLElement, private readonly visitor: Visitor) {
+  constructor(private readonly root: HTMLElement) {
     this.body = root.querySelector('.board-body')!;
     root.querySelector('button')!.addEventListener('click', () => this.close());
   }
@@ -51,45 +48,7 @@ export class BoardView {
     paper('Pedidos (issues)', n.requests.map(q => `#${q.n} ${q.title}`), 'Nenhum pedido aberto. Abra uma issue com o rótulo "pedido" e vote com 👍.', 0.8);
     paper('Obras das stars', [...n.works.done.map(w => `✓ ${w}`), n.works.next ? `→ próxima: ${n.works.next}` : '→ todas prontas!'], '', -1.3);
     if (n.fisher || n.friends.length) paper('Por aí', [...(n.fisher ? [`Melhor pescador: ${n.fisher}`] : []), ...n.friends], '', 1);
-    this.visitorPaper(sim);
     this.root.hidden = false;
     this.root.scrollTop = top;
-  }
-
-  /** Cantinho do visitante: oferenda no celeiro, semente que cresce no navegador, bilhete lido na roda. */
-  private visitorPaper(sim: Simulation): void {
-    const v = this.visitor, d = document.createElement('section');
-    d.className = 'paper visit wide'; d.style.setProperty('--tilt', '0.4deg');
-    const h = document.createElement('h4'); h.textContent = 'Você na vila';
-    const p = document.createElement('p'); p.textContent = 'Fica só no seu navegador: a vila de todo mundo não muda.';
-    d.append(h, p);
-    // oferenda
-    const off = v.offeredToday(sim.genesis), r1 = document.createElement('div'); r1.className = 'vrow';
-    if (off) r1.textContent = `✓ Hoje você deixou ${off} no celeiro.`;
-    else {
-      const sel = document.createElement('select'); sel.setAttribute('aria-label', 'O que deixar no celeiro');
-      for (const o of OFFERINGS) { const op = document.createElement('option'); op.value = o; op.textContent = o; sel.append(op); }
-      const bt = document.createElement('button'); bt.textContent = 'deixar no celeiro';
-      bt.addEventListener('click', () => { v.offer(sim, sel.value); this.show(sim); });
-      const lb = document.createElement('span'); lb.textContent = 'Oferenda:';
-      r1.append(lb, sel, bt);
-    }
-    // semente
-    const pl = v.plant(), r2 = document.createElement('div'); r2.className = 'vrow';
-    const st = ['broto', 'muda', 'em flor', 'moita florida'][v.plantStage()]!;
-    const bt2 = document.createElement('button'); bt2.textContent = pl ? 'replantar em outro lugar' : 'plantar uma semente';
-    bt2.addEventListener('click', () => { this.close(); this.onPlant(); });
-    const s2 = document.createElement('span'); s2.textContent = pl ? `Sua planta: ${st}.` : 'Uma semente que cresce aqui, dia após dia.';
-    r2.append(s2, bt2);
-    // bilhete
-    const note = v.note(), r3 = document.createElement('div'); r3.className = 'vrow col';
-    const s3 = document.createElement('span');
-    s3.textContent = note?.readMs ? `✓ ${note.by} leu seu bilhete na fogueira: "${note.text}"` : note ? `Bilhete esperando a roda da noite: "${note.text}"` : 'Escreva um bilhete: alguém da roda da fogueira lê à noite, só para você.';
-    const ta = document.createElement('textarea'); ta.maxLength = 140; ta.rows = 2; ta.placeholder = 'até 140 letras'; ta.setAttribute('aria-label', 'Bilhete para ler na fogueira');
-    const bt3 = document.createElement('button'); bt3.textContent = note && !note.readMs ? 'trocar o bilhete' : 'mandar para a roda';
-    bt3.addEventListener('click', () => { if (ta.value.trim()) { v.writeNote(ta.value); this.show(sim); } });
-    r3.append(s3, ta, bt3);
-    d.append(r1, r2, r3);
-    this.body.append(d);
   }
 }

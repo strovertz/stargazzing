@@ -64,13 +64,10 @@ export class Renderer {
   boardPapers = 0;
   /** X do tesouro do dia (jogo leve) e o morador favorito de quem visita */
   treasure: { x: number; y: number } | null = null;
-  /** plantinha que o visitante plantou (localStorage): posição e estágio 0..3 */
-  localPlant: { x: number; y: number; stage: number } | null = null;
   favorite: string | null = null;
   private treasureRect: { x: number; y: number; r: number } | null = null;
   get treasureInView(): boolean { return !!this.treasureRect; }
   /** célula do mapa sob o ponto (px, py) da tela */
-  cellAt(px: number, py: number): { x: number; y: number } { const { ox, oy } = this.view(), cs = CW * this.zoom, ch = CH * this.zoom; return { x: Math.round(px / cs + ox - 0.5), y: Math.floor(py / ch + oy) }; }
   treasureAt(px: number, py: number): boolean { const t = this.treasureRect; return !!t && Math.abs(px - t.x) <= t.r && Math.abs(py - t.y) <= t.r; }
   private boardRect: { x: number; y: number; w: number; h: number } | null = null;
   boardAt(px: number, py: number): boolean { const r = this.boardRect; return !!r && px >= r.x - 6 && px <= r.x + r.w + 6 && py >= r.y - 6 && py <= r.y + r.h + 6; }
@@ -634,15 +631,6 @@ export class Renderer {
         if (!built && z >= 0.65) { fx.font = `600 ${Math.round(8 + 2 * z)}px Inter,sans-serif`; fx.textAlign = 'center'; fx.fillStyle = 'rgba(232,217,160,.85)'; fx.fillText(building ? `mutirão: ${p.name}` : p.name, cx, by - spr.h - 4); }
       } });
     }
-    // plantinha do visitante (só neste navegador)
-    const lp = this.localPlant;
-    if (lp && inV(lp.x, lp.y, 3)) ds.push({ y: lp.y + 0.01, draw: () => {
-      const x = sx(lp.x), y = sy(lp.y) - ch * 0.15, st = lp.stage;
-      fx.fillStyle = '#4f8a3a'; fx.fillRect(x - 0.5 * z, y - ch * (0.25 + st * 0.25), 1.5 * z, ch * (0.25 + st * 0.25));
-      if (st >= 1) { fx.fillStyle = '#6fb04a'; fx.fillRect(x - 3 * z, y - ch * 0.4, 3 * z, 2 * z); fx.fillRect(x + 0.5 * z, y - ch * 0.55, 3 * z, 2 * z); }
-      if (st >= 2) { fx.fillStyle = '#f07aa8'; fx.beginPath(); fx.arc(x, y - ch * (0.25 + st * 0.25), 2.6 * z, 0, 7); fx.fill(); fx.fillStyle = '#fadc5a'; fx.fillRect(x - 0.8 * z, y - ch * (0.25 + st * 0.25) - 0.8 * z, 1.6 * z, 1.6 * z); }
-      if (z >= 0.65) { fx.font = `600 ${Math.round(8 + 2 * z)}px Inter,sans-serif`; fx.textAlign = 'center'; fx.fillStyle = '#f07aa8'; fx.fillText('sua planta', x, y - ch * (0.6 + st * 0.3)); }
-    } });
     const lanternsOn = sim.structures.some(st => st.kind === 'lanternas' && st.built);
     if (lanternsOn) for (const [lx, ly] of sim.lanterns) {
       if (!inV(lx, ly, 3)) continue;

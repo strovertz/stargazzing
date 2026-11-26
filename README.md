@@ -94,7 +94,6 @@ Ninguém compra nem vende: tudo vai para o **celeiro comum**, que aparece no qua
 | **Comida em comum** | Sopa no caldeirão da ágora ao meio-dia, ceia na taverna às 19h30 com bardo e banquete quando o celeiro enche |
 | **Cuidado** | Favores entre vizinhos (com agradecimento no diário), sopa para quem pegou resfriado na tempestade e uma oficina que conserta o que o raio estragou |
 | **Coisas de todos** | Galpão que empresta ferramentas, banco de sementes na primavera, carteiro com presentes, histórias na roda da fogueira e um jardim comunitário com uma flor por morador |
-| **Você** | No quadro (`Q`): oferenda no celeiro, uma semente que cresce no seu navegador e um bilhete lido na fogueira só para você |
 
 ## O GitHub vira mundo
 
